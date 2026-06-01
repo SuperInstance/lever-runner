@@ -1,0 +1,56 @@
+# Python
+__pycache__/
+*.py[cod]
+*$py.class
+*.so
+.Python
+*.egg
+*.egg-info/
+.eggs/
+build/
+dist/
+.pytest_cache/
+.coverage
+htmlcov/
+.mypy_cache/
+.ruff_cache/
+venv/
+.venv/
+env/
+ENV/
+
+# LanceDB / data
+data/
+*.lance/
+*.lancedb/
+*.db
+*.sqlite
+*.sqlite3
+
+# Logs
+logs/
+*.log
+token_usage.jsonl
+command_log.jsonl
+
+# Environment / secrets
+.env
+.env.local
+.env.*.local
+*.pem
+*.key
+
+# Editor / OS
+.idea/
+.vscode/
+.DS_Store
+Thumbs.db
+*.swp
+*.swo
+
+# Ollama / model caches
+.ollama/
+models/
+
+# Sandbox
+/tmp/lever-runner/

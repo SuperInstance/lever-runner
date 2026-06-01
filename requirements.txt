@@ -1,0 +1,20 @@
+# Lever-Runner runtime dependencies
+# Pinned loosely; lock with `pip freeze` in your own env if you need reproducibility.
+
+# Vector store
+lancedb>=0.6,<1.0
+pylance>=0.7
+pyarrow>=14
+
+# Local embeddings
+sentence-transformers>=2.6
+torch>=2.0
+
+# LLM (local via Ollama HTTP API)
+requests>=2.31
+
+# Telegram bot
+python-telegram-bot>=20.7,<21
+
+# Config / utilities
+python-dotenv>=1.0
