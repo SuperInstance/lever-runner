@@ -4,7 +4,7 @@ build-backend = "setuptools.build_meta"
 
 [project]
 name = "lever-runner"
-version = "0.1.0"
+version = "0.1.1"
 description = "Post-inference command execution. LLM produces a phrase, never a shell command."
 readme = "README.md"
 license = {file = "LICENSE"}
