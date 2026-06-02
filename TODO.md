@@ -1,8 +1,32 @@
-# TODO — what I'd want for v0.3
+# TODO — what I'd want for v0.4
 
-A list of things I noticed during the v0.2 build but deliberately
+A list of things I noticed during the v0.3 build but deliberately
 didn't do. Not a roadmap — just a place to put the "if I had more
 time" notes so they don't get lost.
+
+## Done in v0.3
+
+- ✅ **DeepInfra backend.** New `LLM_BACKEND=deepinfra` path uses
+  the OpenAI-compatible API at `api.deepinfra.com`. Default
+  model: `meta-llama/Meta-Llama-3.1-8B-Instruct` (clean
+  instruction-follower; the Qwen3.5-4B is a reasoning model
+  whose `content` ends up empty, so it can't be used as a phrase
+  compressor).
+- ✅ **Provider fallback chain.** `LLM_FALLBACKS` env var (default
+  `deepinfra`) sets a comma-separated list of backends tried in
+  order when the primary errors. Retryable: timeout, 429, 5xx,
+  502, 503, 504, 529. 401 also falls through to the next backend.
+  4xx other than 401 propagate up.
+- ✅ **Per-backend URL/model env vars.** `LLM_MINIMAX_BASE_URL`,
+  `LLM_DEEPINFRA_BASE_URL`, etc. — the global `LLM_BASE_URL` no
+  longer leaks into fallback attempts.
+- ✅ **Key resolution bug fix.** The previous `or "".join(...)`
+  code concatenated two env vars into a 64-char invalid key when
+  both were set. Replaced with first-non-empty-wins.
+- ✅ **Tests: 59/59** (was 34 in v0.2). New: 8 retryable-status
+  checks, 4 chain-parsing checks, 1 end-to-end
+  primary-timeout-falls-back-to-passthrough check, plus the
+  existing 34 from v0.2.
 
 ## Done in v0.2
 

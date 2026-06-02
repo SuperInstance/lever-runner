@@ -205,7 +205,38 @@ MIT. See [LICENSE](LICENSE).
 
 ## Status
 
-**v0.2.0** — per-chat isolation, LLM request timeout, log rotation, `/healthz`.
+**v0.3.0** — DeepInfra backend, provider fallback chain.
+
+- **Provider fallback chain (v0.3).** `LLM_FALLBACKS` env var
+  (default `deepinfra`) sets a comma-separated list of backends
+  tried in order when the primary errors. Retryable conditions:
+  timeout, connection refused, 429, 5xx, 502, 503, 504, 529. 401
+  also falls through to the next backend (bad key for one
+  provider shouldn't break the whole chain). 4xx other than 401
+  propagate up — those are config bugs that would fail the same
+  way on any provider. The chain always ends at `passthrough` so
+  a complete provider outage degrades to using the raw user
+  request as the intent rather than hanging.
+- **DeepInfra backend (v0.3).** `LLM_BACKEND=deepinfra` now works
+  out of the box. Default model is
+  `meta-llama/Meta-Llama-3.1-8B-Instruct` ($0.02/M input, $0.03/M
+  output, 128K context). The Qwen3.5-4B model on DeepInfra is a
+  "reasoning" model that leaves its `content` empty, so it's not
+  a fit for the phrase compressor use case. Key resolution:
+  `LLM_API_KEY` first, then `DEEPINFRA_API_KEY`, then
+  `DEEPINFRA_KEY` (first non-empty wins; not concatenated). The
+  bug where two env vars would concatenate into a 64-char invalid
+  key was caught and fixed.
+- **Per-backend URL/model env vars (v0.3).**
+  `LLM_MINIMAX_BASE_URL`, `LLM_DEEPINFRA_BASE_URL`,
+  `LLM_OPENAI_BASE_URL`, etc., let the operator override one
+  backend's endpoint without leaking the global `LLM_BASE_URL`
+  into fallback attempts.
+- **v0.2.x** — per-chat isolation, LLM request timeout, log
+  rotation, `/healthz`.
+- **v0.1.x** — Telegram bot, LanceDB store, embedding pipeline,
+  66-command seed pack, hourly self-improvement loop, installable
+  package, 6 console scripts, pre-commit + CI.
 
 - **Per-chat trust isolation (v0.2).** Each Telegram chat (or any client
   passing a `chat_id`) gets its own LanceDB table
