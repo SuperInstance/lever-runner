@@ -1,8 +1,28 @@
-# TODO — what I'd want for v0.4
+# TODO — what I'd want for v0.5
 
-A list of things I noticed during the v0.3 build but deliberately
+A list of things I noticed during the v0.4 build but deliberately
 didn't do. Not a roadmap — just a place to put the "if I had more
 time" notes so they don't get lost.
+
+## Done in v0.4
+
+- ✅ **Systemd hardening.** `NoNewPrivileges`, `ProtectSystem=strict`,
+  `ProtectHome=read-only`, `PrivateTmp`, scoped `ReadWritePaths`,
+  `MemoryMax=2G`, `LimitNOFILE=65536`, `CPUQuota=200%`.
+- ✅ **HTTP API auth.** `HTTP_BIND` defaults to 127.0.0.1.
+  `HTTP_API_TOKEN` enables bearer auth on `/run` and `/teach`.
+  Refuses non-loopback bind without a token.
+- ✅ **`lever-runner doctor`.** Pre-flight CLI: python, lancedb,
+  telegram token, allowed user, db path, sandbox, LLM backend,
+  fallbacks, log dirs, disk space, in-process smoke.
+- ✅ **Safer init.** `init_db.py --reset` requires `--yes` to confirm.
+  `install.sh` does idempotent seeding (no `--reset` on reinstall).
+  `.env` gets `chmod 600`.
+- ✅ **`pip install -e .` in install.sh** so console scripts land in venv.
+- ✅ **Dynamic LLM timeout.** `LLM_TIMEOUT_SEC` read at call time,
+  not import time (tests can override at runtime).
+- ✅ **Robust Anthropic response parsing.** Handles both dict-based
+  and plain-string content blocks from MiniMax.
 
 ## Done in v0.3.1
 
