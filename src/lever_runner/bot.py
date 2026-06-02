@@ -37,6 +37,7 @@ logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(mess
 log = logging.getLogger("lever-runner.bot")
 
 TELEGRAM_BOT_TOKEN = os.getenv("TELEGRAM_BOT_TOKEN", "")
+ALLOWED_USER_ID = os.getenv("ALLOWED_USER_ID", "").strip()
 
 
 HELP_TEXT = (
@@ -79,18 +80,47 @@ def _format_do(result) -> str:
 
 
 # ---------------------------------------------------------------------------
+# Authorization
+# ---------------------------------------------------------------------------
+
+def _is_authorized(update: Update) -> bool:
+    """True if the message is from the allowed user (or no allowlist set).
+
+    When ALLOWED_USER_ID is unset, the bot responds to anyone — useful for
+    testing. Set it in .env to a Telegram numeric user ID to lock down.
+    """
+    if not ALLOWED_USER_ID:
+        return True
+    try:
+        return str(update.effective_user.id) == str(ALLOWED_USER_ID)
+    except (AttributeError, TypeError):
+        return False
+
+
+async def _deny(update: Update) -> None:
+    await update.message.reply_text(
+        "not authorized. this bot is locked to a specific Telegram user.")
+
+
+# ---------------------------------------------------------------------------
 # Handlers
 # ---------------------------------------------------------------------------
 
 async def cmd_start(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    if not _is_authorized(update):
+        await _deny(update); return
     await update.message.reply_text(HELP_TEXT)
 
 
 async def cmd_help(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    if not _is_authorized(update):
+        await _deny(update); return
     await update.message.reply_text(HELP_TEXT)
 
 
 async def cmd_status(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    if not _is_authorized(update):
+        await _deny(update); return
     s = status()
     await update.message.reply_text(
         f"commands in table: {s['command_count']}\n"
@@ -100,6 +130,8 @@ async def cmd_status(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def cmd_do(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    if not _is_authorized(update):
+        await _deny(update); return
     if not ctx.args:
         await update.message.reply_text("usage: /do <your request>")
         return
@@ -110,6 +142,8 @@ async def cmd_do(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 
 
 async def cmd_teach(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    if not _is_authorized(update):
+        await _deny(update); return
     # /teach "intent phrase here" | shell command goes here
     raw = update.message.text.partition(" ")[2].strip()
     if "|" not in raw:
@@ -130,6 +164,8 @@ async def cmd_teach(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
 
 async def cmd_fallback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     """Plain text (no slash command) is treated as /do."""
+    if not _is_authorized(update):
+        await _deny(update); return
     text = update.message.text.strip()
     chat_id = str(update.effective_chat.id)
     result = do(text, source=chat_id)

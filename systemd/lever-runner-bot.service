@@ -7,6 +7,7 @@ Wants=network-online.target
 Type=simple
 WorkingDirectory=/home/ubuntu/lever-runner
 EnvironmentFile=/home/ubuntu/lever-runner/.env
+Environment=PYTHONPATH=/home/ubuntu/lever-runner/src
 ExecStart=/home/ubuntu/lever-runner/.venv/bin/python -m lever_runner.bot
 Restart=on-failure
 RestartSec=5

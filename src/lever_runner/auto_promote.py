@@ -38,10 +38,11 @@ REWRITE_MODEL = os.getenv("REMOTE_LLM_MODEL", "claude-3-5-sonnet-latest")
 
 
 def _all_rows(table):
-    """Return every row, dropping the schema seed."""
-    rows = table.to_pandas() if hasattr(table, "to_pandas") else None
-    if rows is None:
-        rows = table.search().limit(100000).to_list()
+    """Return every row as a list of dicts, dropping the schema seed.
+    Uses search().to_list() rather than to_pandas() to avoid the pandas
+    dependency (lancedb's to_pandas() triggers a pyarrow pandas shim
+    that requires pandas to be importable)."""
+    rows = table.search().limit(100000).to_list()
     return [r for r in rows if r["id"] != "__schema_seed__"]
 
 

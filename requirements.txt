@@ -14,7 +14,9 @@ torch>=2.0
 requests>=2.31
 
 # Telegram bot
-python-telegram-bot>=20.7,<21
+# v20.x has a name-mangling bug under Python 3.14; v21+ fixes it.
+# (Tracked in the bot's RuntimeError on first polling attempt.)
+python-telegram-bot>=21,<23
 
 # Config / utilities
 python-dotenv>=1.0
