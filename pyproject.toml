@@ -1,0 +1,102 @@
+[build-system]
+requires = ["setuptools>=68", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "lever-runner"
+version = "0.1.0"
+description = "Post-inference command execution. LLM produces a phrase, never a shell command."
+readme = "README.md"
+license = {file = "LICENSE"}
+requires-python = ">=3.10"
+authors = [
+    {name = "SuperInstance", email = "noreply@superinstance.dev"},
+]
+keywords = ["ai", "agent", "cli", "lancedb", "post-inference-retrieval"]
+classifiers = [
+    "Development Status :: 3 - Alpha",
+    "Intended Audience :: Developers",
+    "Intended Audience :: System Administrators",
+    "License :: OSI Approved :: MIT License",
+    "Operating System :: POSIX :: Linux",
+    "Programming Language :: Python :: 3",
+    "Programming Language :: Python :: 3.10",
+    "Programming Language :: Python :: 3.11",
+    "Programming Language :: Python :: 3.12",
+    "Programming Language :: Python :: 3.14",
+    "Topic :: System :: Shells",
+    "Topic :: Utilities",
+]
+dependencies = [
+    "lancedb>=0.20",
+    "sentence-transformers>=5.0",
+    "torch>=2.0",
+    "pyarrow>=14",
+    "python-dotenv>=1.0",
+    # 20.x has a Python 3.14 incompat; v21+ fixes it.
+    "python-telegram-bot>=21,<23",
+    # Stdlib's http.server is fine; no third-party HTTP server needed.
+    # httpx is for the optional remote-LLM rewrite path in auto_promote.
+    "httpx>=0.27",
+]
+
+[project.optional-dependencies]
+dev = [
+    "pytest>=7",
+    "pytest-asyncio>=0.21",
+    "ruff>=0.4",
+]
+
+[project.scripts]
+# `pip install -e .` exposes these on PATH. They call into each module's
+# main() with the right argv, matching how `python -m lever_runner.<x>`
+# would behave. Bot uses Application.run_polling() which expects no argv.
+lever-runner = "lever_runner.__main__:main"
+lever-runner-bot = "lever_runner.bot:main"
+lever-runner-bench = "lever_runner.benchmark:main"
+lever-runner-promote = "lever_runner.auto_promote:main"
+lever-runner-export = "lever_runner.seed_export:main"
+lever-runner-import = "lever_runner.seed_import:main"
+
+[project.urls]
+Homepage = "https://github.com/SuperInstance/lever-runner"
+Issues = "https://github.com/SuperInstance/lever-runner/issues"
+Releases = "https://github.com/SuperInstance/lever-runner/releases"
+
+[tool.setuptools]
+package-dir = {"" = "src"}
+
+[tool.setuptools.packages.find]
+where = ["src"]
+include = ["lever_runner*"]
+
+[tool.setuptools.package-data]
+lever_runner = ["py.typed"]
+
+# --- ruff (linter / formatter) ---------------------------------------------
+[tool.ruff]
+line-length = 100
+target-version = "py310"
+
+[tool.ruff.lint]
+select = ["E", "F", "W", "I", "B", "UP", "N", "S", "C4", "RET"]
+ignore = [
+    "E501",   # line length (we let ruff enforce via line-length above; double-check is redundant)
+    "S101",   # `assert` in tests is fine
+    "S104",   # binding to 0.0.0.0 is intentional in http_api.py
+    "S311",   # we don't use random for security
+    "B008",   # default-arg-in-function-call is fine in CLI helpers
+]
+
+[tool.ruff.lint.per-file-ignores]
+"tests/*" = ["S", "B011"]
+"src/lever_runner/auto_promote.py" = ["S"]   # remote LLM calls are gated on env
+"src/lever_runner/executor.py" = ["S602", "S108", "UP031"]  # shell=True is the design; /tmp/lever-runner is the sandbox
+"src/lever_runner/bot.py" = ["E702"]        # compact if-authorize-then-return style
+"src/lever_runner/orchestrator.py" = ["E702"]
+
+# --- pytest (smoke test infra) ---------------------------------------------
+[tool.pytest.ini_options]
+minversion = "7.0"
+testpaths = ["tests"]
+addopts = "-q --tb=short"
