@@ -9,14 +9,12 @@ Three front-ends call into it:
 
 from __future__ import annotations
 
-import time
 from dataclasses import dataclass
-from typing import Optional
 
+from . import token_logger
+from .executor import RunResult, run_command
 from .intent_extractor import extract as extract_intent
 from .store import CommandStore, Match
-from .executor import run_command, RunResult
-from . import token_logger
 
 
 @dataclass
@@ -24,11 +22,11 @@ class DoResult:
     ok: bool
     user_request: str
     intent: str
-    match: Optional[Match]
-    run: Optional[RunResult]
+    match: Match | None
+    run: RunResult | None
     tokens_in: int
     tokens_out: int
-    error: Optional[str] = None
+    error: str | None = None
     no_match: bool = False
 
     @property
@@ -36,29 +34,48 @@ class DoResult:
         return self.tokens_in + self.tokens_out
 
 
-def do(user_request: str, *, source: str = "cli", store: Optional[CommandStore] = None,
-       min_trust: float = 40.0, auto_run: bool = True) -> DoResult:
+def do(
+    user_request: str,
+    *,
+    source: str = "cli",
+    store: CommandStore | None = None,
+    min_trust: float = 40.0,
+    auto_run: bool = True,
+) -> DoResult:
     """End-to-end: extract intent → embed → find best → optionally run."""
     store = store or CommandStore()
 
     extraction = extract_intent(user_request)
-    token_logger.log_intent(extraction.backend, extraction.tokens_in,
-                            extraction.tokens_out, source=source)
+    token_logger.log_intent(
+        extraction.backend, extraction.tokens_in, extraction.tokens_out, source=source
+    )
     token_logger.log_embed(extraction.phrase, source=source)
 
     if not extraction.phrase:
-        return DoResult(ok=False, user_request=user_request, intent="",
-                        match=None, run=None,
-                        tokens_in=extraction.tokens_in, tokens_out=extraction.tokens_out,
-                        error="LLM returned an empty intent phrase")
+        return DoResult(
+            ok=False,
+            user_request=user_request,
+            intent="",
+            match=None,
+            run=None,
+            tokens_in=extraction.tokens_in,
+            tokens_out=extraction.tokens_out,
+            error="LLM returned an empty intent phrase",
+        )
 
     matches = store.find_best(extraction.phrase, top_k=3)
     if not matches:
-        return DoResult(ok=False, user_request=user_request, intent=extraction.phrase,
-                        match=None, run=None,
-                        tokens_in=extraction.tokens_in, tokens_out=extraction.tokens_out,
-                        no_match=True,
-                        error="no commands in the table yet — run init_db.py")
+        return DoResult(
+            ok=False,
+            user_request=user_request,
+            intent=extraction.phrase,
+            match=None,
+            run=None,
+            tokens_in=extraction.tokens_in,
+            tokens_out=extraction.tokens_out,
+            no_match=True,
+            error="no commands in the table yet — run init_db.py",
+        )
 
     # Pick the match with the best similarity (lowest L2 distance) that
     # is also at or above the trust floor. Trust is a *gate*, not a
@@ -74,33 +91,54 @@ def do(user_request: str, *, source: str = "cli", store: Optional[CommandStore] 
     # (Falls back to the global env var, then 0.55 as a sane default for
     # MiniLM-L6-v2 with normalized embeddings.)
     import os as _os
+
     sim_floor = float(_os.getenv("MATCH_SIMILARITY_FLOOR", "0.55"))
     if chosen.similarity < sim_floor:
-        return DoResult(ok=False, user_request=user_request, intent=extraction.phrase,
-                        match=chosen, run=None,
-                        tokens_in=extraction.tokens_in, tokens_out=extraction.tokens_out,
-                        no_match=True,
-                        error=(f"best match below similarity floor "
-                               f"({chosen.similarity:.2f} < {sim_floor:.2f}); "
-                               f"use /teach to add this command"))
+        return DoResult(
+            ok=False,
+            user_request=user_request,
+            intent=extraction.phrase,
+            match=chosen,
+            run=None,
+            tokens_in=extraction.tokens_in,
+            tokens_out=extraction.tokens_out,
+            no_match=True,
+            error=(
+                f"best match below similarity floor "
+                f"({chosen.similarity:.2f} < {sim_floor:.2f}); "
+                f"use /teach to add this command"
+            ),
+        )
 
     if not auto_run:
-        return DoResult(ok=True, user_request=user_request, intent=extraction.phrase,
-                        match=chosen, run=None,
-                        tokens_in=extraction.tokens_in, tokens_out=extraction.tokens_out)
+        return DoResult(
+            ok=True,
+            user_request=user_request,
+            intent=extraction.phrase,
+            match=chosen,
+            run=None,
+            tokens_in=extraction.tokens_in,
+            tokens_out=extraction.tokens_out,
+        )
 
     result = run_command(chosen.command)
     store.update_trust(chosen.id, success=result.ok)
-    return DoResult(ok=result.ok, user_request=user_request, intent=extraction.phrase,
-                    match=chosen, run=result,
-                    tokens_in=extraction.tokens_in, tokens_out=extraction.tokens_out)
+    return DoResult(
+        ok=result.ok,
+        user_request=user_request,
+        intent=extraction.phrase,
+        match=chosen,
+        run=result,
+        tokens_in=extraction.tokens_in,
+        tokens_out=extraction.tokens_out,
+    )
 
 
-def teach(intent_phrase: str, command: str, *, store: Optional[CommandStore] = None) -> str:
+def teach(intent_phrase: str, command: str, *, store: CommandStore | None = None) -> str:
     store = store or CommandStore()
     return store.teach(intent_phrase, command)
 
 
-def status(store: Optional[CommandStore] = None) -> dict:
+def status(store: CommandStore | None = None) -> dict:
     store = store or CommandStore()
     return {"command_count": store.count()}

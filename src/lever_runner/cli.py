@@ -9,13 +9,13 @@ from __future__ import annotations
 
 import sys
 
-from .orchestrator import do, teach, status
+from .orchestrator import do, status, teach
 
 
 def main(argv: list[str]) -> int:
     if not argv:
         print("usage: python -m lever_runner <request>")
-        print("       python -m lever_runner teach \"phrase\" | <cmd>")
+        print('       python -m lever_runner teach "phrase" | <cmd>')
         print("       python -m lever_runner status")
         return 2
 
@@ -43,7 +43,9 @@ def main(argv: list[str]) -> int:
     if r.error:
         print(f"error:    {r.error}")
     if r.run:
-        print(f"exit:     {r.run.exit_code}  ({'ok' if r.run.ok else 'fail'}, {r.run.duration_sec:.2f}s)")
+        print(
+            f"exit:     {r.run.exit_code}  ({'ok' if r.run.ok else 'fail'}, {r.run.duration_sec:.2f}s)"
+        )
         if r.run.stdout.strip():
             print("--- stdout ---")
             print(r.run.stdout.rstrip())

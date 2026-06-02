@@ -19,14 +19,11 @@ from __future__ import annotations
 
 import os
 import sys
-import uuid
-from typing import List, Optional
 
 import requests
 from dotenv import load_dotenv
 
 from .store import CommandStore
-
 
 load_dotenv()
 
@@ -61,8 +58,7 @@ def promote_winners(store: CommandStore) -> int:
     return n
 
 
-def rewrite_with_remote_llm(intent: str, old_command: str,
-                            failure_count: int) -> Optional[str]:
+def rewrite_with_remote_llm(intent: str, old_command: str, failure_count: int) -> str | None:
     """Ask a remote LLM to propose a corrected command. Returns the command
     string or None if no key is configured / call fails."""
     api_key = os.getenv("REMOTE_LLM_API_KEY", "")
@@ -119,9 +115,9 @@ def rewrite_with_remote_llm(intent: str, old_command: str,
         return None
 
     data = r.json()
-    if "content" in data:                     # Anthropic
+    if "content" in data:  # Anthropic
         text = data["content"][0]["text"]
-    else:                                     # OpenAI
+    else:  # OpenAI
         text = data["choices"][0]["message"]["content"]
     return text.strip().splitlines()[0].strip()
 
@@ -130,15 +126,16 @@ def rewrite_losers(store: CommandStore) -> int:
     """Find low-trust failing commands, ask the remote LLM to fix them,
     insert the fix at trust=TRUST_REWRITTEN, soft-delete the old one."""
     rows = _all_rows(store.table)
-    candidates = [r for r in rows
-                  if r["trust_score"] < PROMOTE_FLOOR
-                  and int(r["failure_count"]) >= PROMOTE_FAILURES]
+    candidates = [
+        r
+        for r in rows
+        if r["trust_score"] < PROMOTE_FLOOR and int(r["failure_count"]) >= PROMOTE_FAILURES
+    ]
     if not candidates:
         return 0
     n = 0
     for r in candidates:
-        new_cmd = rewrite_with_remote_llm(
-            r["intent_phrase"], r["command"], int(r["failure_count"]))
+        new_cmd = rewrite_with_remote_llm(r["intent_phrase"], r["command"], int(r["failure_count"]))
         if not new_cmd or new_cmd == r["command"]:
             continue
         # Insert the rewrite at trust=40 (TRUST_REWRITTEN), soft-delete old.

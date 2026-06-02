@@ -17,8 +17,6 @@ from __future__ import annotations
 import os
 import statistics
 import sys
-import time
-from typing import List, Tuple
 
 from dotenv import load_dotenv
 
@@ -26,11 +24,10 @@ from dotenv import load_dotenv
 os.environ["LLM_BACKEND"] = "passthrough"
 load_dotenv()
 
-from . import token_logger                    # noqa: E402
-from .orchestrator import do, CommandStore    # noqa: E402
+from . import token_logger  # noqa: E402
+from .orchestrator import CommandStore, do  # noqa: E402
 
-
-TASKS: List[str] = [
+TASKS: list[str] = [
     "check disk usage",
     "show memory usage",
     "running processes",
@@ -64,23 +61,24 @@ def main() -> int:
 
     # Wipe the table so trust scores don't drift between runs.
     import lancedb
+
     db = lancedb.connect(os.getenv("LANCEDB_PATH", "./data/lever.lancedb"))
     table_name = os.getenv("LANCEDB_TABLE", "commands")
     if table_name in db.list_tables().tables:
         db.drop_table(table_name)
     # Re-seed by invoking init_db.py in-process.
-    import sys
     sys.path.insert(0, os.path.join(os.path.dirname(__file__), "..", ".."))
     from init_db import build, get_embedder  # type: ignore
+
     build(get_embedder(), reset=True)
 
     store = CommandStore()
     print(f"benchmark: {len(TASKS)} tasks, {store.count()} commands in table")
-    print(f"backend   : passthrough (no real LLM calls)")
+    print("backend   : passthrough (no real LLM calls)")
     print(f"embedding : {os.getenv('EMBEDDING_MODEL')}")
     print()
 
-    per_task: List[Tuple[str, int, int, bool]] = []
+    per_task: list[tuple[str, int, int, bool]] = []
     for i, task in enumerate(TASKS, 1):
         r = do(task, source=f"bench-{i}", store=store)
         status = "ok" if r.ok else "FAIL"
@@ -97,6 +95,7 @@ def main() -> int:
         with open(token_logger.EMBED_LOG_PATH) as f:
             for line in f:
                 import json
+
                 rec = json.loads(line)
                 embed_tokens += int(rec.get("tokens", 0))
                 embed_count += 1
@@ -114,7 +113,7 @@ def main() -> int:
     print(f"avg intent tokens   : {intent_avg:.1f}  (in + out of LLM)")
     print(f"avg embed tokens    : {embed_avg:.1f}  (per intent phrase)")
     print(f"avg total per cmd   : {grand_avg:.1f}")
-    print(f"target              : < 200")
+    print("target              : < 200")
     print("=" * 60)
     return 0 if grand_avg < 200 else 1
 

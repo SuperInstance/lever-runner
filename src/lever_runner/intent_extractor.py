@@ -21,10 +21,8 @@ from __future__ import annotations
 import os
 import re
 from dataclasses import dataclass
-from typing import Optional
 
 import requests
-
 
 SYSTEM_PROMPT = (
     "You compress a user request into a short verb-noun phrase of 3-8 words. "
@@ -41,8 +39,8 @@ INTENT_RE = re.compile(r"[a-z][a-z0-9 -]{2,60}")
 @dataclass
 class Extraction:
     phrase: str
-    tokens_in: int        # approx input tokens sent to the LLM
-    tokens_out: int       # approx output tokens returned
+    tokens_in: int  # approx input tokens sent to the LLM
+    tokens_out: int  # approx output tokens returned
     backend: str
 
 
@@ -50,13 +48,13 @@ class Extraction:
 # Backends
 # ---------------------------------------------------------------------------
 
+
 def _approx_tokens(text: str) -> int:
     """Crude but consistent: ~1 token per 4 chars of English."""
     return max(1, len(text) // 4)
 
 
-def _post_minimax_or_openai(base_url: str, api_key: str, model: str,
-                            system: str, user: str) -> str:
+def _post_minimax_or_openai(base_url: str, api_key: str, model: str, system: str, user: str) -> str:
     """Call any Anthropic-compatible or OpenAI-compatible chat endpoint."""
     # Detect the wire format. MiniMax exposes /v1/messages (Anthropic).
     is_anthropic = base_url.rstrip("/").endswith("/anthropic") or "/anthropic" in base_url
@@ -117,9 +115,9 @@ def _post_ollama(host: str, model: str, system: str, user: str) -> str:
 def _normalize(raw: str) -> str:
     """Tighten the LLM output to a clean phrase."""
     raw = raw.strip().strip("`'\"")
-    raw = raw.splitlines()[0]                  # first line only
+    raw = raw.splitlines()[0]  # first line only
     raw = raw.lower()
-    raw = re.sub(r"[^a-z0-9 -]", "", raw)      # strip punctuation
+    raw = re.sub(r"[^a-z0-9 -]", "", raw)  # strip punctuation
     raw = re.sub(r"\s+", " ", raw).strip()
     # Truncate to the first ~8 words.
     words = raw.split()
@@ -130,11 +128,15 @@ def _normalize(raw: str) -> str:
 # Public API
 # ---------------------------------------------------------------------------
 
-def extract(user_request: str, *,
-            backend: Optional[str] = None,
-            api_key: Optional[str] = None,
-            base_url: Optional[str] = None,
-            model: Optional[str] = None) -> Extraction:
+
+def extract(
+    user_request: str,
+    *,
+    backend: str | None = None,
+    api_key: str | None = None,
+    base_url: str | None = None,
+    model: str | None = None,
+) -> Extraction:
     """Return a clean intent phrase plus token accounting."""
     backend = (backend or os.getenv("LLM_BACKEND", "minimax")).lower()
     user_request = (user_request or "").strip()

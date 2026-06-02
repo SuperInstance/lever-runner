@@ -12,8 +12,6 @@ import os
 import time
 from dataclasses import asdict, dataclass
 from pathlib import Path
-from typing import Optional
-
 
 LOG_PATH = os.getenv("TOKEN_LOG_PATH", "./logs/token_usage.jsonl")
 EMBED_LOG_PATH = os.getenv("EMBED_LOG_PATH", "./logs/embed_usage.jsonl")
@@ -22,13 +20,13 @@ EMBED_LOG_PATH = os.getenv("EMBED_LOG_PATH", "./logs/embed_usage.jsonl")
 @dataclass
 class TokenRecord:
     ts: float
-    kind: str            # "intent" or "embed"
+    kind: str  # "intent" or "embed"
     backend: str
     tokens_in: int
     tokens_out: int
     total: int
-    source: str          # chat_id, "cli", or "http"
-    extra: Optional[dict] = None
+    source: str  # chat_id, "cli", or "http"
+    extra: dict | None = None
 
 
 def _append(path: str, record: dict) -> None:
@@ -39,11 +37,20 @@ def _append(path: str, record: dict) -> None:
 
 
 def log_intent(backend: str, tokens_in: int, tokens_out: int, source: str) -> None:
-    _append(LOG_PATH, asdict(TokenRecord(
-        ts=time.time(), kind="intent", backend=backend,
-        tokens_in=tokens_in, tokens_out=tokens_out,
-        total=tokens_in + tokens_out, source=source,
-    )))
+    _append(
+        LOG_PATH,
+        asdict(
+            TokenRecord(
+                ts=time.time(),
+                kind="intent",
+                backend=backend,
+                tokens_in=tokens_in,
+                tokens_out=tokens_out,
+                total=tokens_in + tokens_out,
+                source=source,
+            )
+        ),
+    )
 
 
 def log_embed(text: str, source: str) -> None:
@@ -51,10 +58,13 @@ def log_embed(text: str, source: str) -> None:
     with a WordPiece vocab; we count ~1 token per 0.75 words."""
     n_words = max(1, len(text.split()))
     tokens = int(n_words / 0.75) + 2
-    _append(EMBED_LOG_PATH, {
-        "ts": time.time(),
-        "kind": "embed",
-        "text_len": len(text),
-        "tokens": tokens,
-        "source": source,
-    })
+    _append(
+        EMBED_LOG_PATH,
+        {
+            "ts": time.time(),
+            "kind": "embed",
+            "text_len": len(text),
+            "tokens": tokens,
+            "source": source,
+        },
+    )

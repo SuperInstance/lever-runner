@@ -5,6 +5,7 @@
 [![License: MIT](https://img.shields.io/badge/License-MIT-yellow.svg)](LICENSE)
 [![Python 3.10+](https://img.shields.io/badge/python-3.10+-blue.svg)]()
 [![Vector DB: LanceDB](https://img.shields.io/badge/vector-LanceDB-green.svg)]()
+[![smoke test](https://github.com/SuperInstance/lever-runner/actions/workflows/smoke.yml/badge.svg)](https://github.com/SuperInstance/lever-runner/actions/workflows/smoke.yml)
 
 A self-improving, token-lean AI command executor. You send natural language;
 Lever-Runner returns a pre-approved shell command and runs it. The local LLM

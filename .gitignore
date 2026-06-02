@@ -3,42 +3,37 @@ __pycache__/
 *.py[cod]
 *$py.class
 *.so
-.Python
-*.egg
 *.egg-info/
-.eggs/
+*.egg
 build/
 dist/
+.eggs/
+
+# Virtual environments
+.venv/
+venv/
+env/
+ENV/
+
+# Test / coverage / lint
 .pytest_cache/
 .coverage
 htmlcov/
 .mypy_cache/
 .ruff_cache/
-venv/
-.venv/
-env/
-ENV/
 
-# LanceDB / data
-data/
-*.lance/
-*.lancedb/
-*.db
-*.sqlite
-*.sqlite3
-
-# Logs
-logs/
-*.log
-token_usage.jsonl
-command_log.jsonl
-
-# Environment / secrets
+# Local config / secrets
 .env
 .env.local
 .env.*.local
 *.pem
 *.key
+
+# Logs and run-time artefacts
+logs/
+*.log
+token_usage.jsonl
+command_log.jsonl
 
 # Editor / OS
 .idea/
@@ -52,5 +47,11 @@ Thumbs.db
 .ollama/
 models/
 
-# Sandbox
+# Lever-Runner: live database, sandbox, snapshots
+data/
+*.lance/
+*.lancedb/
+*.db
+*.sqlite
+*.sqlite3
 /tmp/lever-runner/

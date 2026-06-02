@@ -17,8 +17,7 @@ from urllib.parse import urlparse
 
 from dotenv import load_dotenv
 
-from .orchestrator import do, teach, status
-
+from .orchestrator import do, status, teach
 
 load_dotenv()
 PORT = int(os.getenv("HTTP_PORT", "8765"))
@@ -33,7 +32,7 @@ class Handler(BaseHTTPRequestHandler):
         self.end_headers()
         self.wfile.write(body)
 
-    def do_GET(self):                       # noqa: N802
+    def do_GET(self):  # noqa: N802
         if urlparse(self.path).path == "/status":
             self._send(200, status())
         elif urlparse(self.path).path == "/healthz":
@@ -41,7 +40,7 @@ class Handler(BaseHTTPRequestHandler):
         else:
             self._send(404, {"error": "not found"})
 
-    def do_POST(self):                      # noqa: N802
+    def do_POST(self):  # noqa: N802
         try:
             length = int(self.headers.get("content-length", "0"))
             raw = self.rfile.read(length) if length else b""
@@ -74,7 +73,7 @@ class Handler(BaseHTTPRequestHandler):
             return self._send(200, {"id": teach(phrase, command)})
         return self._send(404, {"error": "not found"})
 
-    def log_message(self, format, *args):    # silence default access log
+    def log_message(self, format, *args):  # silence default access log
         return
 
 

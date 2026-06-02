@@ -41,10 +41,9 @@ os.environ["MATCH_SIMILARITY_FLOOR"] = "0.55"
 # Make src/ importable when running this file directly.
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
-from init_db import build, get_embedder   # noqa: E402
-from src.lever_runner.store import CommandStore           # noqa: E402
-from src.lever_runner.orchestrator import do, teach       # noqa: E402
-
+from init_db import build, get_embedder  # noqa: E402
+from src.lever_runner.orchestrator import do, teach  # noqa: E402
+from src.lever_runner.store import CommandStore  # noqa: E402
 
 PASS = "\033[32mok\033[0m"
 FAIL = "\033[31mFAIL\033[0m"
@@ -71,10 +70,12 @@ def main() -> int:
     r = do("check disk usage", source="smoke")
     check("match found", r.match is not None, r.match.intent_phrase if r.match else "None")
     check("correct match", r.match and r.match.intent_phrase == "show disk usage")
-    check("ran without error", r.run is not None and r.run.ok,
-          f"exit={r.run.exit_code if r.run else 'n/a'}")
-    check("stdout has Filesystem header",
-          r.run and "Filesystem" in r.run.stdout)
+    check(
+        "ran without error",
+        r.run is not None and r.run.ok,
+        f"exit={r.run.exit_code if r.run else 'n/a'}",
+    )
+    check("stdout has Filesystem header", r.run and "Filesystem" in r.run.stdout)
 
     # 2. No-match
     print("\n[2] no-match: 'defenestrate the mainframe'")
@@ -84,35 +85,49 @@ def main() -> int:
 
     # 3. Teach + run cycle
     print("\n[3] teach + immediate run: 'reboot the box'")
-    phrase = "reboot the box " + uuid.uuid4().hex[:6]   # unique so we don't collide
+    phrase = "reboot the box " + uuid.uuid4().hex[:6]  # unique so we don't collide
     cmd = f"echo SMOKE_TEST_{uuid.uuid4().hex[:8]}"
     new_id = teach(phrase, cmd)
     check("teach returned an id", bool(new_id))
     r = do(phrase, source="smoke")
-    check("new row is findable on the next do() call",
-          r.match is not None and r.match.id == new_id,
-          f"match={r.match.intent_phrase if r.match else None}")
-    check("ran the taught command",
-          r.run is not None and r.run.ok and "SMOKE_TEST_" in r.run.stdout,
-          f"stdout={r.run.stdout.strip() if r.run else 'n/a'}")
+    check(
+        "new row is findable on the next do() call",
+        r.match is not None and r.match.id == new_id,
+        f"match={r.match.intent_phrase if r.match else None}",
+    )
+    check(
+        "ran the taught command",
+        r.run is not None and r.run.ok and "SMOKE_TEST_" in r.run.stdout,
+        f"stdout={r.run.stdout.strip() if r.run else 'n/a'}",
+    )
 
     # 4. Trust dynamics
     # After step 3, the taught row has already been run once, so its trust
     # is 51.5 (50 + 1.5) and success_count is 1. Snapshot, run again, check.
     print("\n[4] trust dynamics")
     m_before = store.find_best(phrase, top_k=1)[0]
-    check("post-first-run trust = 51.5",
-          abs(m_before.trust_score - 51.5) < 0.01,
-          f"trust={m_before.trust_score}")
-    check("post-first-run success_count = 1", m_before.success_count == 1,
-          f"succ={m_before.success_count}")
+    check(
+        "post-first-run trust = 51.5",
+        abs(m_before.trust_score - 51.5) < 0.01,
+        f"trust={m_before.trust_score}",
+    )
+    check(
+        "post-first-run success_count = 1",
+        m_before.success_count == 1,
+        f"succ={m_before.success_count}",
+    )
     do(phrase, source="smoke")  # second run
     m_after = store.find_best(phrase, top_k=1)[0]
-    check("trust bumped to 53.0 after second success",
-          abs(m_after.trust_score - 53.0) < 0.01,
-          f"trust={m_after.trust_score}")
-    check("success_count incremented to 2", m_after.success_count == 2,
-          f"succ={m_after.success_count}")
+    check(
+        "trust bumped to 53.0 after second success",
+        abs(m_after.trust_score - 53.0) < 0.01,
+        f"trust={m_after.trust_score}",
+    )
+    check(
+        "success_count incremented to 2",
+        m_after.success_count == 2,
+        f"succ={m_after.success_count}",
+    )
 
     # 5. Failure path: teach a command that will fail, run it
     print("\n[5] failure path: command that exits non-zero")
@@ -121,19 +136,23 @@ def main() -> int:
     fail_id = teach(fail_phrase, fail_cmd)
     r = do(fail_phrase, source="smoke")
     m_fail = store.find_best(fail_phrase, top_k=1)[0]
-    check("failure detected", r.run is not None and not r.run.ok,
-          f"exit={r.run.exit_code if r.run else 'n/a'}")
-    check("trust dropped by 4.0 to 46.0",
-          abs(m_fail.trust_score - 46.0) < 0.01,
-          f"trust={m_fail.trust_score}")
+    check(
+        "failure detected",
+        r.run is not None and not r.run.ok,
+        f"exit={r.run.exit_code if r.run else 'n/a'}",
+    )
+    check(
+        "trust dropped by 4.0 to 46.0",
+        abs(m_fail.trust_score - 46.0) < 0.01,
+        f"trust={m_fail.trust_score}",
+    )
 
     # 6. soft_delete
     print("\n[6] soft_delete")
     pre = store.count()
     store.soft_delete(new_id)
     store.soft_delete(fail_id)
-    check("count decremented by 2", store.count() == pre - 2,
-          f"pre={pre} post={store.count()}")
+    check("count decremented by 2", store.count() == pre - 2, f"pre={pre} post={store.count()}")
 
     # 7. Regression: high-trust wrong match should NOT be picked over
     #    low-trust but exact-similarity match. We re-teach a row at trust=50
@@ -147,9 +166,11 @@ def main() -> int:
     store.table.update(where=f"id = '{other_id}'", values={"trust_score": 90.0})
     # now ask for the TARGET row, which has trust=50
     r = do(target_phrase, source="smoke")
-    check("exact-similarity match wins despite lower trust",
-          r.match is not None and r.match.id == target_id,
-          f"match={r.match.intent_phrase if r.match else None}")
+    check(
+        "exact-similarity match wins despite lower trust",
+        r.match is not None and r.match.id == target_id,
+        f"match={r.match.intent_phrase if r.match else None}",
+    )
     store.soft_delete(target_id)
     store.soft_delete(other_id)
 

@@ -25,10 +25,17 @@ from .store import CommandStore
 
 def main() -> int:
     p = argparse.ArgumentParser(description="Export lever-runner commands to JSONL.")
-    p.add_argument("--min-trust", type=float, default=0.0,
-                   help="only export rows with trust_score >= this (default 0)")
-    p.add_argument("--include-stats", action="store_true",
-                   help="include trust/success/failure counts in the export")
+    p.add_argument(
+        "--min-trust",
+        type=float,
+        default=0.0,
+        help="only export rows with trust_score >= this (default 0)",
+    )
+    p.add_argument(
+        "--include-stats",
+        action="store_true",
+        help="include trust/success/failure counts in the export",
+    )
     args = p.parse_args()
 
     store = CommandStore()
@@ -52,9 +59,11 @@ def main() -> int:
         sys.stdout.write("\n")
         n_out += 1
 
-    print(f"# exported {n_out}/{n_in} rows "
-          f"(min-trust={args.min_trust}, include-stats={args.include_stats})",
-          file=sys.stderr)
+    print(
+        f"# exported {n_out}/{n_in} rows "
+        f"(min-trust={args.min_trust}, include-stats={args.include_stats})",
+        file=sys.stderr,
+    )
     return 0
 
 

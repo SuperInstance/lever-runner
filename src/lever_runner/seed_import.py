@@ -25,7 +25,7 @@ from __future__ import annotations
 import argparse
 import json
 import sys
-from typing import Iterable
+from collections.abc import Iterable
 
 from .store import CommandStore
 
@@ -43,14 +43,18 @@ def _iter_jsonl(stream) -> Iterable[dict]:
 
 def main() -> int:
     p = argparse.ArgumentParser(description="Import lever-runner commands from JSONL.")
-    p.add_argument("file", nargs="?", default="-",
-                   help="input file or '-' for stdin (default)")
-    p.add_argument("--trust", type=float, default=50.0,
-                   help="default trust for rows that don't specify one")
-    p.add_argument("--reset", action="store_true",
-                   help="DANGEROUS: drop the existing table before importing")
-    p.add_argument("--skip-existing", action="store_true",
-                   help="skip rows whose intent_phrase already exists in the table")
+    p.add_argument("file", nargs="?", default="-", help="input file or '-' for stdin (default)")
+    p.add_argument(
+        "--trust", type=float, default=50.0, help="default trust for rows that don't specify one"
+    )
+    p.add_argument(
+        "--reset", action="store_true", help="DANGEROUS: drop the existing table before importing"
+    )
+    p.add_argument(
+        "--skip-existing",
+        action="store_true",
+        help="skip rows whose intent_phrase already exists in the table",
+    )
     args = p.parse_args()
 
     store = CommandStore()
@@ -60,16 +64,18 @@ def main() -> int:
         store = CommandStore()  # re-init empty
 
     if args.skip_existing:
-        existing_phrases = {r["intent_phrase"] for r in
-                            store.table.search().limit(100000).to_list()
-                            if r["id"] != "__schema_seed__"}
+        existing_phrases = {
+            r["intent_phrase"]
+            for r in store.table.search().limit(100000).to_list()
+            if r["id"] != "__schema_seed__"
+        }
     else:
         existing_phrases = set()
 
     if args.file == "-":
         records = list(_iter_jsonl(sys.stdin))
     else:
-        with open(args.file, "r", encoding="utf-8") as f:
+        with open(args.file, encoding="utf-8") as f:
             records = list(_iter_jsonl(f))
 
     n_in = len(records)
@@ -89,9 +95,11 @@ def main() -> int:
         n_out += 1
         existing_phrases.add(phrase)
 
-    print(f"[import] {n_out}/{n_in} rows inserted, {n_skipped} skipped "
-          f"(file={args.file}, reset={args.reset}, skip-existing={args.skip_existing})",
-          file=sys.stderr)
+    print(
+        f"[import] {n_out}/{n_in} rows inserted, {n_skipped} skipped "
+        f"(file={args.file}, reset={args.reset}, skip-existing={args.skip_existing})",
+        file=sys.stderr,
+    )
     return 0
 
 
