@@ -18,6 +18,8 @@ import sys
 import time
 from typing import Callable
 
+from dotenv import load_dotenv
+
 # Lazy imports inside _check_* functions so a missing optional dep
 # doesn't make the whole doctor fail before we even get to print.
 
@@ -205,6 +207,7 @@ CHECKS: list[Callable[[], tuple[str, str, str]]] = [
 
 
 def main() -> int:
+    load_dotenv()
     print(f"lever-runner doctor @ {time.strftime('%Y-%m-%d %H:%M:%S UTC', time.gmtime())}\n")
     fails = 0
     warns = 0
