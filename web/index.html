@@ -1,0 +1,127 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lever-Runner — post-inference command execution</title>
+  <meta name="description" content="A small AI command executor. The LLM produces a short intent phrase, never a shell command. Shell commands come from a pre-approved table.">
+  <style>
+    :root {
+      --fg: #1a1a1a;
+      --muted: #666;
+      --accent: #2c5;
+      --bg: #fafafa;
+      --code-bg: #f0f0f0;
+      --max-w: 720px;
+    }
+    body {
+      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
+      color: var(--fg); background: var(--bg);
+      max-width: var(--max-w); margin: 2em auto; padding: 0 1em;
+      line-height: 1.6;
+    }
+    h1 { font-size: 1.8em; margin-bottom: 0.2em; }
+    h2 { font-size: 1.3em; margin-top: 2em; border-bottom: 1px solid #ddd; padding-bottom: 0.2em; }
+    .tagline { color: var(--muted); font-size: 1.05em; margin-top: 0; }
+    code { background: var(--code-bg); padding: 0.1em 0.3em; border-radius: 3px; font-size: 0.95em; }
+    pre { background: var(--code-bg); padding: 1em; border-radius: 4px; overflow-x: auto; }
+    pre code { background: none; padding: 0; }
+    a { color: var(--accent); text-decoration: none; }
+    a:hover { text-decoration: underline; }
+    .badges a { margin-right: 0.5em; }
+    .num { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
+    .muted { color: var(--muted); }
+    table { border-collapse: collapse; width: 100%; }
+    th, td { text-align: left; padding: 0.4em 0.6em; border-bottom: 1px solid #e0e0e0; }
+    th { background: var(--code-bg); }
+    footer { margin-top: 3em; padding-top: 1em; border-top: 1px solid #ddd; color: var(--muted); font-size: 0.9em; }
+  </style>
+</head>
+<body>
+
+<h1>Lever-Runner</h1>
+<p class="tagline">A small AI command executor. The LLM only ever sees a short phrase. Shell commands come from a pre-approved table.</p>
+
+<div class="badges">
+  <a href="https://github.com/SuperInstance/lever-runner"><img alt="repo" src="https://img.shields.io/badge/github-SuperInstance%2Flever--runner-blue"></a>
+  <a href="https://github.com/SuperInstance/lever-runner/releases/tag/v0.1.0"><img alt="release" src="https://img.shields.io/badge/release-v0.1.0-green"></a>
+  <a href="https://github.com/SuperInstance/lever-runner/actions/workflows/smoke.yml"><img alt="smoke" src="https://github.com/SuperInstance/lever-runner/actions/workflows/smoke.yml/badge.svg"></a>
+  <a href="../LICENSE"><img alt="license" src="https://img.shields.io/badge/license-MIT-blue"></a>
+</div>
+
+<h2>What it is</h2>
+<p>
+  Lever-Runner is a thin layer on top of a vector database and an embedding model. A user types something like <em>"check disk usage"</em> in Telegram or on the CLI. A small LLM (<a href="https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2">sentence-transformers/all-MiniLM-L6-v2</a> + a hosted or local LLM) turns that into a 3–8 word phrase. The phrase is matched against a <a href="https://lancedb.com/">LanceDB</a> table of pre-approved commands. The top match above the trust floor is executed in a sandboxed <code>/tmp/lever-runner/&lt;sid&gt;/</code> directory with a 30-second timeout.
+</p>
+<p>
+  The LLM never sees, never generates, and has no way to invent a shell command. The threat model is that the LLM can only output a phrase; phrases are matched against a fixed table; the LLM cannot inject shell.
+</p>
+
+<h2>Try it in 60 seconds</h2>
+<pre><code>git clone https://github.com/SuperInstance/lever-runner
+cd lever-runner
+python3 -m venv .venv &amp;&amp; .venv/bin/pip install -e ".[dev]"
+.venv/bin/python init_db.py --reset
+
+# CLI
+.venv/bin/lever-runner "check disk usage"
+.venv/bin/lever-runner "show openclaw version"
+.venv/bin/lever-runner status
+
+# Smoke test (18 checks, &lt;2s, isolated tempdir)
+.venv/bin/python -m tests.smoke
+
+# Benchmark (20 tasks; forces passthrough backend)
+.venv/bin/lever-runner-bench</code></pre>
+
+<h2>What it costs</h2>
+<table>
+  <tr><th></th><th>Lever-Runner</th><th>Tool-calling agent</th></tr>
+  <tr><td>LLM tokens per command</td><td><span class="num">&lt; 200</span> (target); ~70–90 prod, ~6 passthrough</td><td><span class="num">1,500–8,000</span></td></tr>
+  <tr><td>LLM sees shell?</td><td>No</td><td>Yes (via tool schema)</td></tr>
+  <tr><td>Adds a new capability</td><td><code>/teach</code> in Telegram (1 message)</td><td>Edit code, redeploy</td></tr>
+  <tr><td>Self-improves</td><td>Yes (<code>auto-promote</code>, hourly cron)</td><td>No (out of band)</td></tr>
+  <tr><td>Offline-capable</td><td>Yes (with <code>passthrough</code> or local Ollama)</td><td>Partially</td></tr>
+  <tr><td>Cloud bill</td><td><span class="num">$0</span> (passthrough / local) or pennies (hosted)</td><td>$5–$50+/mo</td></tr>
+</table>
+<p class="muted">"Passthrough" means the LLM isn't called at all; the user request is normalized and used as the intent phrase verbatim. This is the cheapest mode and what the benchmark measures.</p>
+
+<h2>How the trust model works</h2>
+<ul>
+  <li>New commands start at <code>trust = 50</code>.</li>
+  <li>Matches below <code>MATCH_MIN_TRUST</code> (default 40) are skipped.</li>
+  <li>Similarity below <code>MATCH_SIMILARITY_FLOOR</code> (default 0.55) → <code>no_match</code> + a <code>/teach</code> prompt.</li>
+  <li>Successful runs: trust <code>+1.5</code>, success_count <code>+1</code>.</li>
+  <li>Failed runs: trust <code>-4.0</code>, failure_count <code>+1</code>.</li>
+  <li>Hourly cron: commands with <code>success_count &gt; 20</code> and <code>trust &lt; 90</code> get <code>+10</code> (promotion).</li>
+  <li>Hourly cron: commands with <code>trust &lt; 30</code> and <code>failure_count &gt; 5</code> are surfaced for review. If <code>REMOTE_LLM_API_KEY</code> is set, a remote LLM is asked to propose a correction (opt-in only).</li>
+</ul>
+
+<h2>Shareable command packs</h2>
+<p>Export your command table to JSONL and ship it.</p>
+<pre><code>.venv/bin/lever-runner-export --include-stats &gt; my-pack.jsonl
+# on another machine:
+.venv/bin/lever-runner-import my-pack.jsonl</code></pre>
+<p>See the <a href="../community/README.md">community packs</a> directory for an example.</p>
+
+<h2>What it's not</h2>
+<ul>
+  <li>Not a general agent. The LLM cannot reason about novel intents; the intent must match a seeded command (or you <code>/teach</code> it).</li>
+  <li>Not a security boundary on its own. The sandbox is per-session <code>/tmp</code>; it does not namespace, drop capabilities, or chroot. Run untrusted commands at your own risk.</li>
+  <li>Not a drop-in replacement for a tool-calling agent. The token savings come from giving up the ability to invent new commands on the fly.</li>
+</ul>
+
+<h2>Links</h2>
+<ul>
+  <li><a href="https://github.com/SuperInstance/lever-runner">Repository</a></li>
+  <li><a href="https://github.com/SuperInstance/lever-runner/releases">Releases</a></li>
+  <li><a href="https://github.com/SuperInstance/lever-runner/blob/main/README.md">README</a></li>
+  <li><a href="https://github.com/SuperInstance/lever-runner/blob/main/AGENTS.md">AGENTS.md</a> (operator notes)</li>
+</ul>
+
+<footer>
+  <span class="muted">Lever-Runner is MIT-licensed. No analytics, no telemetry, no phone-home.</span>
+</footer>
+
+</body>
+</html>
