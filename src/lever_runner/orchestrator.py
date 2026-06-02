@@ -38,12 +38,17 @@ def do(
     user_request: str,
     *,
     source: str = "cli",
+    chat_id: str = "default",
     store: CommandStore | None = None,
     min_trust: float = 40.0,
     auto_run: bool = True,
 ) -> DoResult:
-    """End-to-end: extract intent → embed → find best → optionally run."""
-    store = store or CommandStore()
+    """End-to-end: extract intent → embed → find best → optionally run.
+
+    chat_id scopes the store to a per-chat table. Defaults to "default"
+    for CLI usage. The Telegram bot passes str(update.effective_chat.id).
+    """
+    store = store or CommandStore(chat_id=chat_id)
 
     extraction = extract_intent(user_request)
     token_logger.log_intent(
@@ -134,11 +139,17 @@ def do(
     )
 
 
-def teach(intent_phrase: str, command: str, *, store: CommandStore | None = None) -> str:
-    store = store or CommandStore()
+def teach(
+    intent_phrase: str,
+    command: str,
+    *,
+    chat_id: str = "default",
+    store: CommandStore | None = None,
+) -> str:
+    store = store or CommandStore(chat_id=chat_id)
     return store.teach(intent_phrase, command)
 
 
-def status(store: CommandStore | None = None) -> dict:
-    store = store or CommandStore()
-    return {"command_count": store.count()}
+def status(chat_id: str = "default", *, store: CommandStore | None = None) -> dict:
+    store = store or CommandStore(chat_id=chat_id)
+    return {"command_count": store.count(), "chat_id": chat_id}

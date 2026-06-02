@@ -3,11 +3,18 @@ store.py — LanceDB-backed command store.
 
 Owns the table handle, the embedder, and the four operations the rest of
 the system needs: lookup, insert, teach, update_trust.
+
+v0.2 — per-chat isolation. Each Telegram chat (or CLI --chat-id) gets
+its own table named `commands_<chat_id>`. The seed pack from init_db.py
+is imported into the table on first use, so a new chat starts with the
+same 66 commands as everyone else but can /teach its own without
+affecting (or being affected by) other chats.
 """
 
 from __future__ import annotations
 
 import os
+import re
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -18,12 +25,59 @@ from dotenv import load_dotenv
 load_dotenv()
 
 LANCEDB_PATH = os.getenv("LANCEDB_PATH", "./data/lever.lancedb")
-LANCEDB_TABLE = os.getenv("LANCEDB_TABLE", "commands")
+LANCEDB_TABLE_PREFIX = os.getenv("LANCEDB_TABLE_PREFIX", "commands")
+# Legacy support: the v0.1.x single-table layout used the literal name
+# "commands" with no suffix. We keep that as the "default" chat's table
+# so existing data survives the upgrade.
+LEGACY_TABLE = "commands"
 EMBEDDING_MODEL = os.getenv("EMBEDDING_MODEL", "sentence-transformers/all-MiniLM-L6-v2")
 EMBEDDING_DIM = 384
 
 TRUST_NEW = float(os.getenv("TRUST_NEW_COMMAND", "50"))
 TRUST_REWRITTEN = float(os.getenv("TRUST_REWRITTEN_COMMAND", "40"))
+
+# Chat IDs in Telegram are integers. CLI may pass anything. We sanitize
+# to a safe subset for use as a LanceDB table name (alphanumerics +
+# underscore). Falls back to "default" if the input sanitizes to empty.
+_TABLE_NAME_RE = re.compile(r"[^A-Za-z0-9_]")
+
+
+def _table_name_for(chat_id: str) -> str:
+    """Return a safe LanceDB table name for the given chat id.
+
+    The legacy single-table layout used the bare name 'commands' with
+    no suffix, so we treat chat_id == 'default' (or the empty string)
+    as a request for the legacy table to preserve data across upgrades.
+    """
+    if chat_id in ("", "default"):
+        return LEGACY_TABLE
+    sanitized = _TABLE_NAME_RE.sub("_", str(chat_id))
+    if not sanitized:
+        return LEGACY_TABLE
+    return f"{LANCEDB_TABLE_PREFIX}_{sanitized}"
+
+
+def _migrate_legacy_table_if_needed(db: lancedb.DBConnection) -> None:
+    """If a v0.1.x 'commands' table exists with real data and no
+    'commands_default' table yet, rename it. Idempotent.
+    """
+    tables = set(db.list_tables().tables)
+    if LEGACY_TABLE in tables and f"{LANCEDB_TABLE_PREFIX}_default" not in tables:
+        # Check that legacy has at least one non-schema-seed row.
+        legacy = db.open_table(LEGACY_TABLE)
+        non_schema = [
+            r for r in legacy.search().limit(1000).to_list()
+            if r["id"] != "__schema_seed__"
+        ]
+        if non_schema:
+            # LanceDB doesn't have a rename primitive; create the new
+            # table with the same rows and drop the legacy.
+            db.create_table(
+                f"{LANCEDB_TABLE_PREFIX}_default",
+                data=non_schema,
+                mode="create",
+            )
+            db.drop_table(LEGACY_TABLE)
 
 
 @dataclass
@@ -45,9 +99,18 @@ def _get_embedder():
 
 
 class CommandStore:
-    """Thin wrapper around the `commands` table. Lazy-loads the embedder."""
+    """Thin wrapper around a per-chat command table. Lazy-loads the embedder.
 
-    def __init__(self) -> None:
+    Each chat_id gets its own LanceDB table; the seed pack from
+    `init_db.py` is bulk-imported into the table on first use, so a
+    new chat starts with the same commands as everyone else but can
+    /teach its own without affecting (or being affected by) other
+    chats.
+    """
+
+    def __init__(self, chat_id: str = "default") -> None:
+        self.chat_id = str(chat_id)
+        self.table_name = _table_name_for(self.chat_id)
         Path(LANCEDB_PATH).mkdir(parents=True, exist_ok=True)
         # read_consistency_interval=0: force every read to see the latest
         # writes. Cheap on a small table, and means /teach followed
@@ -58,10 +121,17 @@ class CommandStore:
 
         rc_interval = timedelta(seconds=float(os.getenv("READ_CONSISTENCY_INTERVAL_SEC", "0")))
         self.db = lancedb.connect(LANCEDB_PATH, read_consistency_interval=rc_interval)
-        if LANCEDB_TABLE not in self.db.list_tables().tables:
-            # Bootstrap an empty table with a schema sample row.
+
+        # One-time migration: rename the v0.1.x 'commands' table to
+        # 'commands_default' if it has real data.
+        _migrate_legacy_table_if_needed(self.db)
+
+        if self.table_name not in self.db.list_tables().tables:
+            # Bootstrap an empty table with a schema sample row, then
+            # bulk-import the seed pack from init_db.py so this chat
+            # starts with the same commands as everyone else.
             self.db.create_table(
-                LANCEDB_TABLE,
+                self.table_name,
                 data=[
                     {
                         "id": "__schema_seed__",
@@ -75,8 +145,45 @@ class CommandStore:
                 ],
                 mode="create",
             )
-        self.table = self.db.open_table(LANCEDB_TABLE)
+            # Seed only on first creation of a chat's table. Subsequent
+            # constructions for the same chat_id find the table exists
+            # and skip this branch entirely.
+            self.table = self.db.open_table(self.table_name)
+            self._embedder = None
+            self._seed_from_init_db()
+        self.table = self.db.open_table(self.table_name)
         self._embedder = None
+
+    def _seed_from_init_db(self) -> None:
+        """Bulk-import SEED_COMMANDS into this chat's table.
+
+        Called once per chat, on first construction. Encodes all intent
+        phrases in a single batch for speed (~0.5s for 66 phrases vs
+        ~3s one-at-a-time).
+        """
+        try:
+            from init_db import SEED_COMMANDS
+        except ImportError:
+            # init_db.py may not be on the import path (e.g. when the
+            # package is installed as a wheel). Fall back to a no-op;
+            # the chat will start empty and the user can /teach.
+            return
+        if not SEED_COMMANDS:
+            return
+        phrases = [c["intent"] for c in SEED_COMMANDS]
+        vectors = self.embedder.encode(phrases, normalize_embeddings=True, show_progress_bar=False)
+        rows = []
+        for c, v in zip(SEED_COMMANDS, vectors):
+            rows.append({
+                "id": str(uuid.uuid4()),
+                "intent_phrase": c["intent"],
+                "command": c["command"],
+                "trust_score": TRUST_NEW,
+                "success_count": 0,
+                "failure_count": 0,
+                "embedding": v.tolist(),
+            })
+        self.table.add(rows)
 
     @property
     def embedder(self):

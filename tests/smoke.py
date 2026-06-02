@@ -17,10 +17,13 @@ Covers:
   7.  soft_delete removes a row
   8.  find_best returns the closest match, not a high-trust-but-distant one
       (regression test for the inverted-priority bug)
+  9.  per-chat isolation: a /teach in chat A is invisible to chat B
+      (regression test for v0.2 per-chat trust)
 """
 
 from __future__ import annotations
 
+import json
 import os
 import sys
 import tempfile
@@ -174,7 +177,131 @@ def main() -> int:
     store.soft_delete(target_id)
     store.soft_delete(other_id)
 
-    # 8. Reset all trust scores we touched (should be none — we deleted them)
+    # 8. Per-chat isolation: /teach in chat A is invisible to chat B
+    # (regression test for v0.2 per-chat trust).
+    print("\n[9] per-chat isolation")
+    chat_a = "smoke-chat-a-" + uuid.uuid4().hex[:6]
+    chat_b = "smoke-chat-b-" + uuid.uuid4().hex[:6]
+    sa = CommandStore(chat_id=chat_a)
+    sb = CommandStore(chat_id=chat_b)
+    check("new chat A starts with seed pack", sa.count() > 0, f"{sa.count()} rows")
+    check("new chat B starts with seed pack", sb.count() > 0, f"{sb.count()} rows")
+    unique_phrase = f"smoke isolation test {uuid.uuid4().hex[:8]}"
+    teach(unique_phrase, "echo ISOLATION", chat_id=chat_a)
+    r_a = do(unique_phrase, source="smoke", chat_id=chat_a)
+    r_b = do(unique_phrase, source="smoke", chat_id=chat_b)
+    check("chat A finds the unique command", r_a.match is not None and r_a.match.intent_phrase == unique_phrase)
+    check("chat B does NOT see chat A's command", r_b.no_match is True,
+          f"r_b.match={r_b.match.intent_phrase if r_b.match else None}")
+    # Cleanup both chat tables
+    sa.table.delete(f"intent_phrase = '{unique_phrase}'")
+    # Chat A and B have the seed pack, which we shouldn't drop; drop the
+    # whole tables instead since they're smoke-test-only.
+    sa.db.drop_table(sa.table_name)
+    sb.db.drop_table(sb.table_name)
+
+    # 9. Trust-dynamics for auto_promote.promote_winners:
+    #    a row with high success_count and trust < 90 should get bumped;
+    #    a row already at trust=90 should be untouched.
+    #    This is the hourly cron path and was previously untested.
+    print("\n[10] auto_promote.promote_winners")
+    from src.lever_runner.auto_promote import promote_winners
+
+    promo_phrase = "promote me " + uuid.uuid4().hex[:6]
+    promo_id = store.teach(promo_phrase, "echo PROMO", trust=50.0)
+    # simulate 25 successful runs by setting success_count directly
+    store.table.update(where=f"id = '{promo_id}'", values={"success_count": 25})
+    n_promoted = promote_winners(store)
+    bumped = store.find_best(promo_phrase, top_k=1)[0]
+    check("promote_winners bumped the high-success row", n_promoted >= 1, f"n={n_promoted}")
+    check("trust raised to 60.0 (50 + 10)", abs(bumped.trust_score - 60.0) < 0.01,
+          f"trust={bumped.trust_score}")
+
+    # a row at trust=90 should NOT be touched even with high success_count
+    saturated_phrase = "already at ceiling " + uuid.uuid4().hex[:6]
+    sat_id = store.teach(saturated_phrase, "echo SAT", trust=90.0)
+    store.table.update(where=f"id = '{sat_id}'", values={"success_count": 100})
+    n2 = promote_winners(store)
+    sat = store.find_best(saturated_phrase, top_k=1)[0]
+    check("promote_winners skipped the trust=90 row", n2 == 0 or sat.trust_score == 90.0,
+          f"n={n2} trust={sat.trust_score}")
+
+    # cleanup the promote-test rows
+    store.soft_delete(promo_id)
+    store.soft_delete(sat_id)
+
+    # 10. auto_promote.rewrite_losers without REMOTE_LLM_API_KEY: should
+    #     be a no-op (no rewrites) even if there are low-trust failing
+    #     commands in the table.
+    print("\n[11] auto_promote.rewrite_losers (no remote key = no-op)")
+    from src.lever_runner.auto_promote import rewrite_losers
+
+    # ensure REMOTE_LLM_API_KEY is unset for this test
+    saved_key = os.environ.pop("REMOTE_LLM_API_KEY", None)
+    try:
+        loser_phrase = "rewrite me " + uuid.uuid4().hex[:6]
+        loser_id = store.teach(loser_phrase, "false", trust=20.0)
+        store.table.update(where=f"id = '{loser_id}'", values={"failure_count": 10})
+        n_rewritten = rewrite_losers(store)
+        check("rewrite_losers is no-op without REMOTE_LLM_API_KEY",
+              n_rewritten == 0, f"n={n_rewritten}")
+        # the loser row should still exist (unchanged)
+        still_there = store.find_best(loser_phrase, top_k=1)
+        check("loser row is still present (not deleted)",
+              len(still_there) == 1 and still_there[0].id == loser_id)
+        store.soft_delete(loser_id)
+    finally:
+        if saved_key is not None:
+            os.environ["REMOTE_LLM_API_KEY"] = saved_key
+
+    # 12. Token-log rotation: a small LOG_MAX_BYTES should trigger a
+    #     rename and create a .1 backup. This is the size-cap that
+    #     prevents the JSONL from growing forever.
+    print("\n[12] token-log rotation")
+    import os as _os
+    from src.lever_runner.token_logger import _rotate_if_needed, LOG_PATH
+
+    rot_dir = tempfile.mkdtemp(prefix="lr-rot-")
+    rot_path = f"{rot_dir}/usage.jsonl"
+    Path(rot_path).write_text("x" * 100 + "\n")
+    # With a 50-byte cap, the existing 101-byte file is over the limit.
+    _rotate_if_needed(rot_path, max_bytes=50, backup_count=3)
+    check("rotated file no longer at original path", not Path(rot_path).exists() or Path(rot_path).stat().st_size < 50)
+    check("created .1 backup", Path(rot_path + ".1").exists())
+    # Subsequent appends to the live file should still work
+    with open(rot_path, "a") as f:
+        f.write("next line\n")
+    check("live file accepts new writes after rotation", Path(rot_path).stat().st_size > 0)
+    # Clean up
+    for p in Path(rot_dir).glob("usage.jsonl*"):
+        p.unlink()
+    Path(rot_dir).rmdir()
+
+    # 13. /healthz returns a valid liveness payload
+    print("\n[13] /healthz endpoint")
+    from src.lever_runner.http_api import Handler
+    import io
+    from urllib.parse import urlparse, parse_qs
+
+    class _Fake(Handler):
+        def __init__(self, path):
+            self.path = path
+            self.wfile = io.BytesIO()
+        def send_response(self, c): self._code = c
+        def send_header(self, k, v): pass
+        def end_headers(self): pass
+        def setup(self): pass
+
+    fake = _Fake("/healthz")
+    Handler.do_GET(fake)
+    health = json.loads(fake.wfile.getvalue().decode())
+    check("/healthz returns ok=true", health.get("ok") is True, str(health))
+    check("/healthz includes version", "version" in health, str(health))
+    check("/healthz includes uptime_sec", "uptime_sec" in health, str(health))
+    check("/healthz includes total_commands", "total_commands" in health and health["total_commands"] > 0,
+          f"total={health.get('total_commands')}")
+
+    # 14. Reset all trust scores we touched (should be none — we deleted them)
     print("\n[cleanup] all test rows soft-deleted; trust scores untouched")
 
     # Summary

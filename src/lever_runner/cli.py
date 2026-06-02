@@ -3,39 +3,52 @@ cli.py — `python -m lever_runner "check disk usage"`.
 
 Prints the orchestrator result in plain text. Useful for cron jobs and
 quick tests from the shell.
+
+Use --chat-id to scope the store to a per-chat table (matches the
+Telegram bot's chat_id handling). Default is "default".
 """
 
 from __future__ import annotations
 
+import argparse
 import sys
 
 from .orchestrator import do, status, teach
 
 
 def main(argv: list[str]) -> int:
-    if not argv:
-        print("usage: python -m lever_runner <request>")
-        print('       python -m lever_runner teach "phrase" | <cmd>')
-        print("       python -m lever_runner status")
+    # Manual arg parse: support --chat-id in front or after the subcommand.
+    chat_id = "default"
+    args = list(argv)
+    if args and args[0] == "--chat-id":
+        if len(args) < 2:
+            print("--chat-id requires a value")
+            return 2
+        chat_id = args[1]
+        args = args[2:]
+    if not args:
+        print("usage: python -m lever_runner [--chat-id ID] <request>")
+        print('       python -m lever_runner [--chat-id ID] teach "phrase" | <cmd>')
+        print("       python -m lever_runner [--chat-id ID] status")
         return 2
 
-    sub = argv[0]
+    sub = args[0]
     if sub == "teach":
-        raw = " ".join(argv[1:])
+        raw = " ".join(args[1:])
         if "|" not in raw:
             print('usage: python -m lever_runner teach "phrase" | <cmd>')
             return 2
         phrase, _, cmd = raw.partition("|")
-        row_id = teach(phrase.strip().strip('"'), cmd.strip())
-        print(f"taught: {row_id}")
+        row_id = teach(phrase.strip().strip('"'), cmd.strip(), chat_id=chat_id)
+        print(f"taught (chat={chat_id}): {row_id}")
         return 0
     if sub == "status":
-        s = status()
-        print(f"commands: {s['command_count']}")
+        s = status(chat_id=chat_id)
+        print(f"chat: {s['chat_id']}  commands: {s['command_count']}")
         return 0
 
-    request = " ".join(argv)
-    r = do(request, source="cli")
+    request = " ".join(args)
+    r = do(request, source="cli", chat_id=chat_id)
     print(f"intent:   {r.intent!r}")
     if r.match:
         print(f"matched:  {r.match.intent_phrase!r}  trust={r.match.trust_score:.1f}")

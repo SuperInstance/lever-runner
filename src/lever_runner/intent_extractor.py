@@ -18,11 +18,16 @@ This is good enough for the < 200 tokens/command benchmark.
 
 from __future__ import annotations
 
+import logging
 import os
 import re
 from dataclasses import dataclass
 
 import requests
+
+log = logging.getLogger("lever-runner.intent")
+
+DEFAULT_TIMEOUT_SEC = float(os.getenv("LLM_TIMEOUT_SEC", "5"))
 
 SYSTEM_PROMPT = (
     "You compress a user request into a short verb-noun phrase of 3-8 words. "
@@ -54,7 +59,15 @@ def _approx_tokens(text: str) -> int:
     return max(1, len(text) // 4)
 
 
-def _post_minimax_or_openai(base_url: str, api_key: str, model: str, system: str, user: str) -> str:
+def _post_minimax_or_openai(
+    base_url: str,
+    api_key: str,
+    model: str,
+    system: str,
+    user: str,
+    *,
+    timeout_sec: float = DEFAULT_TIMEOUT_SEC,
+) -> str:
     """Call any Anthropic-compatible or OpenAI-compatible chat endpoint."""
     # Detect the wire format. MiniMax exposes /v1/messages (Anthropic).
     is_anthropic = base_url.rstrip("/").endswith("/anthropic") or "/anthropic" in base_url
@@ -71,7 +84,7 @@ def _post_minimax_or_openai(base_url: str, api_key: str, model: str, system: str
             "system": system,
             "messages": [{"role": "user", "content": user}],
         }
-        r = requests.post(url, headers=headers, json=body, timeout=30)
+        r = requests.post(url, headers=headers, json=body, timeout=timeout_sec)
         r.raise_for_status()
         data = r.json()
         # Anthropic: content[0].text
@@ -91,13 +104,20 @@ def _post_minimax_or_openai(base_url: str, api_key: str, model: str, system: str
             {"role": "user", "content": user},
         ],
     }
-    r = requests.post(url, headers=headers, json=body, timeout=30)
+    r = requests.post(url, headers=headers, json=body, timeout=timeout_sec)
     r.raise_for_status()
     data = r.json()
     return data["choices"][0]["message"]["content"].strip()
 
 
-def _post_ollama(host: str, model: str, system: str, user: str) -> str:
+def _post_ollama(
+    host: str,
+    model: str,
+    system: str,
+    user: str,
+    *,
+    timeout_sec: float = DEFAULT_TIMEOUT_SEC,
+) -> str:
     url = host.rstrip("/") + "/api/chat"
     body = {
         "model": model,
@@ -107,7 +127,7 @@ def _post_ollama(host: str, model: str, system: str, user: str) -> str:
             {"role": "user", "content": user},
         ],
     }
-    r = requests.post(url, json=body, timeout=30)
+    r = requests.post(url, json=body, timeout=timeout_sec)
     r.raise_for_status()
     return r.json()["message"]["content"].strip()
 
@@ -167,11 +187,35 @@ def extract(
                 "ANTHROPIC_API_KEY, or OPENAI_API_KEY in the environment, "
                 "or use LLM_BACKEND=passthrough"
             )
-        raw = _post_minimax_or_openai(base_url, api_key, model, system, user)
+        try:
+            raw = _post_minimax_or_openai(base_url, api_key, model, system, user)
+        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
+            log.warning("LLM call failed (%s); falling back to passthrough for this call", e)
+            return Extraction(
+                phrase=_normalize(user_request),
+                tokens_in=0,
+                tokens_out=0,
+                backend="passthrough-fallback",
+            )
+        except requests.exceptions.HTTPError:
+            # 4xx/5xx from the provider. Don't fall back — the user
+            # needs to know their key is wrong or the service is down.
+            raise
     elif backend == "ollama":
         host = os.getenv("OLLAMA_HOST", "http://localhost:11434")
         model = model or os.getenv("OLLAMA_MODEL", "llama3.1:8b-instruct-q4_K_M")
-        raw = _post_ollama(host, model, system, user)
+        try:
+            raw = _post_ollama(host, model, system, user)
+        except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
+            log.warning("Ollama call failed (%s); falling back to passthrough for this call", e)
+            return Extraction(
+                phrase=_normalize(user_request),
+                tokens_in=0,
+                tokens_out=0,
+                backend="passthrough-fallback",
+            )
+        except requests.exceptions.HTTPError:
+            raise
     else:
         raise ValueError(f"unknown LLM_BACKEND: {backend!r}")
 

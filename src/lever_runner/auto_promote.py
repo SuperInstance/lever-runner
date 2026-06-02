@@ -19,11 +19,13 @@ from __future__ import annotations
 
 import os
 import sys
+from pathlib import Path
 
 import requests
 from dotenv import load_dotenv
 
-from .store import CommandStore
+from .store import LANCEDB_PATH, LANCEDB_TABLE_PREFIX, CommandStore, LEGACY_TABLE
+import lancedb
 
 load_dotenv()
 
@@ -154,13 +156,39 @@ def rewrite_losers(store: CommandStore) -> int:
     return n
 
 
+def _iter_chat_tables():
+    """Yield (chat_id, CommandStore) for every commands_* table in the DB.
+
+    With v0.2 per-chat isolation, a single global sweep no longer covers
+    all chats. We discover tables at runtime by listing them in the
+    LanceDB directory and instantiating a CommandStore for each. The
+    'default' chat uses the legacy single-table name to preserve data
+    across upgrades (see store._migrate_legacy_table_if_needed).
+    """
+    Path(LANCEDB_PATH).mkdir(parents=True, exist_ok=True)
+    db = lancedb.connect(LANCEDB_PATH)
+    for name in sorted(db.list_tables().tables):
+        if name == LEGACY_TABLE:
+            chat_id = "default"
+        elif name.startswith(f"{LANCEDB_TABLE_PREFIX}_"):
+            chat_id = name[len(LANCEDB_TABLE_PREFIX) + 1:]
+        else:
+            continue
+        yield chat_id, CommandStore(chat_id=chat_id)
+
+
 def main() -> int:
-    store = CommandStore()
-    print(f"[auto_promote] {store.count()} commands in table")
-    promoted = promote_winners(store)
-    print(f"[auto_promote] trust bumped on {promoted} winners")
-    rewritten = rewrite_losers(store)
-    print(f"[auto_promote] rewrote {rewritten} losers")
+    total_promoted = 0
+    total_rewritten = 0
+    for chat_id, store in _iter_chat_tables():
+        n = store.count()
+        print(f"[auto_promote] chat={chat_id}  {n} commands in table")
+        p = promote_winners(store)
+        r = rewrite_losers(store)
+        print(f"[auto_promote] chat={chat_id}  +{p} promoted  +{r} rewritten")
+        total_promoted += p
+        total_rewritten += r
+    print(f"[auto_promote] total: +{total_promoted} promoted, +{total_rewritten} rewritten")
     return 0
 
 

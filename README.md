@@ -205,7 +205,28 @@ MIT. See [LICENSE](LICENSE).
 
 ## Status
 
-**v0.1.0** — initial release. Telegram bot, LanceDB store, embedding pipeline,
-49-command seed pack, hourly self-improvement loop (promote + optional
-rewrite), token benchmark. See `benchmark.py` for the measurement setup;
-the headline number assumes `LLM_BACKEND=passthrough` unless stated.
+**v0.2.0** — per-chat isolation, LLM request timeout, log rotation, `/healthz`.
+
+- **Per-chat trust isolation (v0.2).** Each Telegram chat (or any client
+  passing a `chat_id`) gets its own LanceDB table
+  (`commands_<sanitized_chat_id>`). A `/teach` in chat A is invisible to
+  chat B. New chats auto-seed with the global pack on first use. The
+  default chat's table is named `commands_default` (the legacy
+  `commands` table is migrated on first access).
+- **LLM request timeout (v0.2).** `LLM_TIMEOUT_SEC` (default 5 s) covers
+  connect + read. A timed-out request falls back to passthrough for that
+  call (the user's raw request is used as the intent), so a hung LLM
+  provider can't hang the orchestrator. HTTPError (4xx/5xx) still
+  propagates — wrong key / provider outage should be visible.
+- **Log rotation (v0.2).** `token_usage.jsonl` and `embed_usage.jsonl`
+  rotate at 5 MiB with up to 3 backups (~20 MiB cap per log). Tunable
+  via `TOKEN_LOG_MAX_BYTES` and `TOKEN_LOG_BACKUP_COUNT`.
+- **`/healthz` endpoint (v0.2).** `GET /healthz` returns `{ok, version,
+  uptime_sec, tables, total_commands, lancedb_path}` for liveness
+  monitoring.
+- **v0.1.x** — Telegram bot, LanceDB store, embedding pipeline, 66-command
+  seed pack, hourly self-improvement loop (promote + optional rewrite),
+  token benchmark, installable package, 6 console scripts, pre-commit
+  + CI.
+
+See `TODO.md` for the v0.3 wish list.

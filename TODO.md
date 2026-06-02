@@ -1,53 +1,57 @@
-# TODO — what I'd want for v0.2
+# TODO — what I'd want for v0.3
 
-A list of things I noticed during the v0.1.0 / v0.1.1 build but
-deliberately didn't do. Not a roadmap — just a place to put the
-"if I had more time" notes so they don't get lost.
+A list of things I noticed during the v0.2 build but deliberately
+didn't do. Not a roadmap — just a place to put the "if I had more
+time" notes so they don't get lost.
 
-## Correctness / robustness
+## Done in v0.2
 
-- **Trust-dynamics tests for `auto_promote.py`.** The smoke test
-  exercises `tests/smoke.py` end-to-end but doesn't touch the cron
-  path. Specifically: insert a row, give it 21 successes, run
-  `auto_promote`, verify trust is bumped +10. Insert a row, give
-  it 6 failures, run, verify it's surfaced as a candidate (and
-  that without `REMOTE_LLM_API_KEY` nothing is rewritten).
+- ✅ Per-chat trust isolation (chat-scoped LanceDB tables, default = "default")
+- ✅ LLM request timeout (5s, with passthrough fallback so a hung
+  LLM can't hang the orchestrator)
+- ✅ Log rotation for token_usage.jsonl / embed_usage.jsonl (5 MiB
+  cap, 3 backups, ~20 MiB max per log)
+- ✅ GET /healthz endpoint (version, uptime, table counts)
+- ✅ Trust-dynamics tests for `auto_promote.py` (cron path now has
+  coverage in `tests/smoke.py`)
+
+## Correctness / robustness (v0.3 candidates)
+
 - **Race-condition test for read-after-write.** We saw the
   LanceDB read-after-write race during the v0.1.0 build (teach +
   immediate do returned the wrong row). The fix was
   `read_consistency_interval=0`, but the test would need to
   reproduce the race deterministically, which is hard. Worth
-  trying.
-- **Concurrent `/teach` from multiple chat IDs.** Right now there's
-  one global trust table. Two users with different intents could
-  race on `update_trust` writes via lancedb's append semantics.
-  Low priority — lancedb is fine with concurrent reads + serialized
-  writes, and there's only one user (Casey) right now.
-- **Token budget on the LLM call.** `intent_extractor` doesn't
-  enforce a max output token count or a request timeout. If the
-  LLM hangs, `/do` hangs. Add a 5s timeout.
+  trying with a stress test that does `teach` + `do` 100 times in
+  a loop.
+- **Concurrent `/teach` from multiple chat IDs.** v0.2 added
+  per-chat isolation but the write path is still global
+  serialization through lancedb. Two users in different chats
+  `/teach`ing simultaneously is fine (different tables), but
+  within a chat, concurrent `/teach` is racy on the row id.
+  Low priority — there's only one user right now.
+- **`/do` after bot restart race.** The bot reads the table on
+  every command. If LanceDB's index hasn't refreshed after a
+  teach from a previous run, `/do` could miss it. The
+  `read_consistency_interval=0` covers most cases but a forced
+  re-open on table change would be belt-and-suspenders.
 
-## Operational
+## Operational (v0.3 candidates)
 
-- **`pyproject.toml` `setup.cfg`-style entry point** so the
-  package installs without the editable hack. The current
-  `package-dir = {"" = "src"}` works but isn't idiomatic.
-- **Log rotation.** `logs/bot.log`, `logs/token_usage.jsonl`, and
-  `logs/auto_promote.log` grow forever. Add a daily logrotate
-  config.
-- **Health endpoint on `http_api.py`.** Right now the only HTTP
-  surface is `/run` and `/teach`. Add `GET /health` that returns
-  JSON with `version`, `command_count`, `uptime_seconds`.
-- **Per-chat trust.** The trust score is global, not per-user.
-  If you ever share the bot, you want the trust score to be
-  per-chat so Casey's "df -h is good" doesn't propagate to a
-  stranger's "rm -rf is good."
 - **Secret rotation helper.** A `make rotate-telegram-token` that
   walks you through @BotFather, then updates `.env` and restarts
   the systemd unit. Or just: rotate the four exposed keys
   (Telegram, MINIMAX, DEEPINFRA, ZAI) manually.
+- **Bot log rotation.** Bot logs go to journald (great), but
+  `logs/auto_promote.log` and `logs/bot.log` (the stale one
+  from before we relied on journald) need a logrotate config.
+  Lower priority than the JSONL rotation we just shipped.
+- **Token budget on the LLM call.** `intent_extractor` doesn't
+  enforce a max output token count. We hard-coded `max_tokens=32`
+  in the request, but a hostile or buggy provider could ignore
+  it. Add a server-side cap on returned content length.
 
-## Features
+## Features (v0.3 candidates)
 
 - **`/teach --trust=70`** to override the default trust when
   teaching. Useful for "I know this is a good command, start
@@ -67,20 +71,22 @@ deliberately didn't do. Not a roadmap — just a place to put the
   decision.
 - **A tiny web UI** that shows the table, lets you `/teach` from
   the browser, and shows recent runs. Not the static landing
-  page; an actual SPA-ish thing. v0.2+ at earliest.
+  page; an actual SPA-ish thing. v0.3 at earliest.
 
-## Code quality
+## Code quality (v0.3 candidates)
 
 - **`bot.py` test coverage.** The handlers are all unit-testable
   with a mock `Update` object. There are zero tests for `bot.py`
-  today.
+  today. v0.3 should add at least: allowed-user gate, /do happy
+  path, /teach happy path, /status happy path.
 - **`intent_extractor.py` test coverage.** The 4 backends should
-  each have a happy-path test and a "backend down" test.
+  each have a happy-path test and a "backend down" test. We added
+  a single timeout fallback test in v0.2; expand to all backends.
 - **The benchmark's pass count is 14/20** which is honest but
   low. Add more seeds or relax the similarity floor — but the
-  trade-off is real, and 14/20 is fine for a v0.1.
+  trade-off is real, and 14/20 is fine for v0.2.
 - **Ruff `S` rules** (security) are mostly ignored per-file
-  because they fire on intentional patterns. That's a v0.2
+  because they fire on intentional patterns. That's a v0.3
   decision: either rewrite the patterns or document why they're
   intentional in a `SECURITY.md`.
 
@@ -89,8 +95,11 @@ deliberately didn't do. Not a roadmap — just a place to put the
 - Tool-calling. Once you let the LLM call tools, the post-
   inference security property is gone. If you want tool-calling,
   use OpenClaw or Hermes Agent. Don't add it to lever-runner.
-- Multi-user trust without per-chat isolation. Sharing a global
-  trust table is the foot-gun.
+- Multi-user trust without per-chat isolation. v0.2 ships that
+  isolation, so this is now solved at the table level — but
+  sharing a *chat* (group chat with a bot) still shares trust
+  within that chat. If we ever want per-user trust in a group,
+  that needs a different table layout (`commands_<chat>_<user>`).
 - A "viral" marketing surface. The `web/index.html` is honest
   about what lever-runner is and isn't. Don't add the comparison
   table back as a marketing piece.

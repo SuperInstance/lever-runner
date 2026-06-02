@@ -128,8 +128,10 @@ async def cmd_status(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     if not _is_authorized(update):
         await _deny(update)
         return
-    s = status()
+    chat_id = str(update.effective_chat.id)
+    s = status(chat_id=chat_id)
     await update.message.reply_text(
+        f"chat: {s['chat_id']}\n"
         f"commands in table: {s['command_count']}\n"
         f"trust floor for auto-run: 40\n"
         f"new commands start at trust 50"
@@ -145,7 +147,7 @@ async def cmd_do(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         return
     request = " ".join(ctx.args)
     chat_id = str(update.effective_chat.id)
-    result = do(request, source=chat_id)
+    result = do(request, source=chat_id, chat_id=chat_id)
     await update.message.reply_text(_format_do(result))
 
 
@@ -167,7 +169,8 @@ async def cmd_teach(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     if not phrase or not command:
         await update.message.reply_text("both intent phrase and command are required")
         return
-    row_id = teach(phrase, command)
+    chat_id = str(update.effective_chat.id)
+    row_id = teach(phrase, command, chat_id=chat_id)
     await update.message.reply_text(
         f"taught. id={row_id[:8]}\nphrase: {phrase!r}\ncommand: {command}"
     )
@@ -180,7 +183,7 @@ async def cmd_fallback(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         return
     text = update.message.text.strip()
     chat_id = str(update.effective_chat.id)
-    result = do(text, source=chat_id)
+    result = do(text, source=chat_id, chat_id=chat_id)
     await update.message.reply_text(_format_do(result))
 
 
