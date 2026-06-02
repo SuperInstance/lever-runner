@@ -93,7 +93,7 @@ SEED_COMMANDS: List[Dict[str, str]] = [
     {"intent": "show node version",                        "command": "node --version"},
     {"intent": "show npm version",                         "command": "npm --version"},
     {"intent": "list global npm packages",                 "command": "npm list -g --depth=0"},
-    {"intent": "audit npm dependencies",                   "command": "npm audit --omit=dev"},
+    {"intent": "npm security audit for vulnerabilities",   "command": "npm audit --omit=dev"},
 
     # --- networking --------------------------------------------------------
     {"intent": "ping a host",                              "command": "ping -c 4 1.1.1.1"},
