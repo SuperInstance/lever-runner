@@ -1,0 +1,38 @@
+name: smoke
+
+on:
+  push:
+    branches: [main]
+  pull_request:
+    branches: [main]
+
+jobs:
+  smoke:
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        python-version: ["3.10", "3.11", "3.12", "3.13"]
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Set up Python ${{ matrix.python-version }}
+        uses: actions/setup-python@v5
+        with:
+          python-version: ${{ matrix.python-version }}
+          cache: pip
+          cache-dependency-path: pyproject.toml
+
+      - name: Install (with dev extras)
+        run: |
+          python -m pip install --upgrade pip
+          # Don't include [dev] (ruff etc) on CI; just runtime deps.
+          pip install -e .
+
+      - name: Run smoke test
+        run: python -m tests.smoke
+
+      - name: Run ruff check
+        run: |
+          pip install ruff
+          ruff check src tests
+          ruff format --check src tests
