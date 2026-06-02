@@ -31,7 +31,7 @@ from telegram.ext import (
     filters,
 )
 
-from .orchestrator import do, status, teach
+from .orchestrator import do, list_commands, status, teach
 
 load_dotenv()
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
@@ -45,6 +45,9 @@ HELP_TEXT = (
     "Lever-Runner — post-inference command executor.\n\n"
     "/do <request>             run a command from the pre-approved table\n"
     '/teach "phrase" | <cmd>  add a new command (trust starts at 50)\n'
+    "/teach --trust=N ...      override starting trust (0-100)\n"
+    "/commands [N] [--page=K]  list commands in this chat, sorted by trust\n"
+    "/stats <phrase>           show full stats for one command\n"
     "/status                   show how many commands are loaded\n\n"
     "The LLM only sees your request as a short phrase. It never invents a command."
 )
@@ -138,6 +141,103 @@ async def cmd_status(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     )
 
 
+async def cmd_commands(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    """List commands in the table, sorted by trust desc. Paginated.
+
+    Usage:
+        /commands             first 20 (default)
+        /commands 50          first 50
+        /commands 20 --page=2  page 2 of size 20
+    """
+    if not _is_authorized(update):
+        await _deny(update)
+        return
+    chat_id = str(update.effective_chat.id)
+    # Parse: first arg is limit, then optional --page=N
+    limit = 20
+    page = 1
+    args = list(ctx.args or [])
+    if args and not args[0].startswith("--"):
+        try:
+            limit = int(args[0])
+            limit = max(1, min(limit, 100))
+        except ValueError:
+            await update.message.reply_text("usage: /commands [N] [--page=K]")
+            return
+        args = args[1:]
+    for a in args:
+        if a.startswith("--page="):
+            try:
+                page = max(1, int(a.split("=", 1)[1]))
+            except ValueError:
+                await update.message.reply_text("--page= expects a number")
+                return
+    offset = (page - 1) * limit
+    listing = list_commands(chat_id=chat_id, limit=limit, offset=offset)
+    total = listing["total"]
+    rows = listing["commands"]
+    if not rows:
+        await update.message.reply_text(
+            f"chat: {chat_id}\npage {page} of {(total + limit - 1) // limit}: empty"
+        )
+        return
+    lines = [f"chat: {chat_id}  page {page}/{(total + limit - 1) // limit}  ({total} total)"]
+    for r in rows:
+        phrase = str(r.get("intent_phrase", ""))[:40]
+        trust = float(r.get("trust_score", 0.0))
+        succ = int(r.get("success_count", 0))
+        fail = int(r.get("failure_count", 0))
+        last_run = r.get("last_run", "")
+        last = f"  last: {last_run[:10]}" if last_run else ""
+        lines.append(
+            f"  {trust:5.1f}  {succ:>3}/{fail:<3}  {phrase}{last}"
+        )
+    await update.message.reply_text("\n".join(lines))
+
+
+async def cmd_stats(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
+    """Show full stats for a specific command, looked up by phrase.
+
+    Usage:
+        /stats show disk usage
+    """
+    if not _is_authorized(update):
+        await _deny(update)
+        return
+    if not ctx.args:
+        await update.message.reply_text("usage: /stats <phrase>")
+        return
+    import os
+    from .store import CommandStore
+    phrase = " ".join(ctx.args)
+    chat_id = str(update.effective_chat.id)
+    sm = CommandStore(chat_id=chat_id)
+    matches = sm.find_best(phrase, top_k=1)
+    sim_floor = float(os.getenv("MATCH_SIMILARITY_FLOOR", "0.55"))
+    if not matches or matches[0].similarity < sim_floor:
+        await update.message.reply_text(
+            f"no match for {phrase!r} (top similarity: "
+            f"{matches[0].similarity:.3f}, floor: {sim_floor:.2f})"
+        )
+        return
+    m = matches[0]
+    row = sm.get_by_id(m.id) or {}
+    last_run = row.get("last_run", "")
+    last_result = row.get("last_result", "")
+    created = row.get("created_at", "")
+    lines = [
+        f"phrase: {m.intent_phrase!r}",
+        f"command: {m.command}",
+        f"trust: {m.trust_score:.1f}",
+        f"success: {m.success_count}  failure: {m.failure_count}",
+        f"created: {created[:19] if created else 'unknown'}",
+        f"last run: {last_run[:19] if last_run else 'never'}  ({last_result or '—'})",
+        f"distance: {m.score:.3f}  similarity: {m.similarity:.3f}",
+        f"id: {m.id[:8]}",
+    ]
+    await update.message.reply_text("\n".join(lines))
+
+
 async def cmd_do(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     if not _is_authorized(update):
         await _deny(update)
@@ -155,12 +255,43 @@ async def cmd_teach(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
     if not _is_authorized(update):
         await _deny(update)
         return
-    # /teach "intent phrase here" | shell command goes here
+    # /teach [--trust=N] "intent phrase here" | shell command goes here
     raw = update.message.text.partition(" ")[2].strip()
+    # Parse optional leading flags (--trust=70, --trust 70).
+    trust: float | None = None
+    while raw.startswith("--"):
+        flag, _, rest = raw.partition(" ")
+        if flag.startswith("--trust="):
+            try:
+                trust = float(flag.split("=", 1)[1])
+                if not 0 <= trust <= 100:
+                    raise ValueError
+            except ValueError:
+                await update.message.reply_text("--trust must be a number 0-100")
+                return
+            raw = rest.strip()
+        elif flag.startswith("--trust"):
+            # /teach --trust 70 "phrase" | cmd
+            parts = rest.split(maxsplit=1)
+            if not parts:
+                await update.message.reply_text("--trust requires a value")
+                return
+            try:
+                trust = float(parts[0])
+                if not 0 <= trust <= 100:
+                    raise ValueError
+            except ValueError:
+                await update.message.reply_text("--trust must be a number 0-100")
+                return
+            raw = parts[1].strip() if len(parts) > 1 else ""
+        else:
+            await update.message.reply_text(f"unknown flag: {flag}")
+            return
     if "|" not in raw:
         await update.message.reply_text(
-            'usage: /teach "intent phrase" | shell command\n'
-            'example: /teach "show git status" | git status'
+            'usage: /teach [--trust=N] "intent phrase" | shell command\n'
+            'example: /teach "show git status" | git status\n'
+            'example: /teach --trust=70 "show openclaw version" | openclaw --version'
         )
         return
     phrase_part, _, cmd_part = raw.partition("|")
@@ -170,9 +301,10 @@ async def cmd_teach(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         await update.message.reply_text("both intent phrase and command are required")
         return
     chat_id = str(update.effective_chat.id)
-    row_id = teach(phrase, command, chat_id=chat_id)
+    row_id = teach(phrase, command, chat_id=chat_id, trust=trust)
+    trust_msg = f" (trust={trust:.0f})" if trust is not None else ""
     await update.message.reply_text(
-        f"taught. id={row_id[:8]}\nphrase: {phrase!r}\ncommand: {command}"
+        f"taught{trust_msg}. id={row_id[:8]}\nphrase: {phrase!r}\ncommand: {command}"
     )
 
 
@@ -202,6 +334,8 @@ def main() -> int:
     app.add_handler(CommandHandler("status", cmd_status))
     app.add_handler(CommandHandler("do", cmd_do))
     app.add_handler(CommandHandler("teach", cmd_teach))
+    app.add_handler(CommandHandler("commands", cmd_commands))
+    app.add_handler(CommandHandler("stats", cmd_stats))
     # Plain text (no /command) → treated as /do
     app.add_handler(MessageHandler(filters.TEXT & ~filters.COMMAND, cmd_fallback))
     log.info("polling Telegram…")

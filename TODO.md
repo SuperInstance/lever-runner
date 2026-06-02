@@ -4,7 +4,42 @@ A list of things I noticed during the v0.3 build but deliberately
 didn't do. Not a roadmap — just a place to put the "if I had more
 time" notes so they don't get lost.
 
-## Done in v0.3
+## Done in v0.3.1
+
+- ✅ `/commands [N] [--page=K]` — paginated table listing, sorted
+  by trust desc. Bot + CLI (via `orchestrator.list_commands`).
+- ✅ `/stats <phrase>` — full stats for one command: trust,
+  success/failure counts, created/last_run, embedding distance.
+  Respects MATCH_SIMILARITY_FLOOR (returns "no match" with
+  context below the floor).
+- ✅ `/teach --trust=N` — override starting trust. Bot + CLI.
+  Validates 0-100 range.
+- ✅ `store.list_all(limit, offset, min_trust)` — new method on
+  CommandStore; uses lancedb's `.to_pandas()` for filtering +
+  sorting. Pagination is Python-side because the tables are
+  O(hundreds) rows and lancedb's pagination semantics vary.
+- ✅ `store.get_by_id(row_id)` — fetch one row's full metadata.
+- ✅ pandas added to requirements.txt.
+
+## Done in v0.3.0
+
+- ✅ **DeepInfra backend.** New `LLM_BACKEND=deepinfra` path uses
+  the OpenAI-compatible API at `api.deepinfra.com`. Default
+  model: `meta-llama/Meta-Llama-3.1-8B-Instruct` (clean
+  instruction-follower; the Qwen3.5-4B is a reasoning model
+  whose `content` ends up empty, so it can't be used as a phrase
+  compressor).
+- ✅ **Provider fallback chain.** `LLM_FALLBACKS` env var (default
+  `deepinfra`) sets a comma-separated list of backends tried in
+  order when the primary errors. Retryable: timeout, 429, 5xx,
+  502, 503, 504, 529. 401 also falls through to the next backend.
+  4xx other than 401 propagate up.
+- ✅ **Per-backend URL/model env vars.** `LLM_MINIMAX_BASE_URL`,
+  `LLM_DEEPINFRA_BASE_URL`, etc. — the global `LLM_BASE_URL` no
+  longer leaks into fallback attempts.
+- ✅ **Key resolution bug fix.** The previous `or "".join(...)`
+  code concatenated two env vars into a 64-char invalid key when
+  both were set. Replaced with first-non-empty-wins.
 
 - ✅ **DeepInfra backend.** New `LLM_BACKEND=deepinfra` path uses
   the OpenAI-compatible API at `api.deepinfra.com`. Default

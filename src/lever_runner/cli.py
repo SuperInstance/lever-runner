@@ -34,13 +34,29 @@ def main(argv: list[str]) -> int:
 
     sub = args[0]
     if sub == "teach":
-        raw = " ".join(args[1:])
+        # Parse optional --trust=N from anywhere in the teach arg list
+        trust: float | None = None
+        teach_args: list[str] = []
+        for a in args[1:]:
+            if a.startswith("--trust="):
+                try:
+                    trust = float(a.split("=", 1)[1])
+                except ValueError:
+                    print("--trust must be a number")
+                    return 2
+            elif a.startswith("--trust"):
+                # handled below; skip the value
+                continue
+            else:
+                teach_args.append(a)
+        raw = " ".join(teach_args)
         if "|" not in raw:
-            print('usage: python -m lever_runner teach "phrase" | <cmd>')
+            print('usage: python -m lever_runner teach [--trust=N] "phrase" | <cmd>')
             return 2
         phrase, _, cmd = raw.partition("|")
-        row_id = teach(phrase.strip().strip('"'), cmd.strip(), chat_id=chat_id)
-        print(f"taught (chat={chat_id}): {row_id}")
+        row_id = teach(phrase.strip().strip('"'), cmd.strip(), chat_id=chat_id, trust=trust)
+        suffix = f" trust={trust:.0f}" if trust is not None else ""
+        print(f"taught (chat={chat_id}){suffix}: {row_id}")
         return 0
     if sub == "status":
         s = status(chat_id=chat_id)

@@ -45,7 +45,7 @@ os.environ["MATCH_SIMILARITY_FLOOR"] = "0.55"
 sys.path.insert(0, str(Path(__file__).resolve().parents[1]))
 
 from init_db import build, get_embedder  # noqa: E402
-from src.lever_runner.orchestrator import do, teach  # noqa: E402
+from src.lever_runner.orchestrator import do, list_commands, teach  # noqa: E402
 from src.lever_runner.store import CommandStore  # noqa: E402
 
 PASS = "\033[32mok\033[0m"
@@ -441,6 +441,226 @@ def main() -> int:
         # Restore the test environment
         for k in ["LLM_BACKEND", "LLM_BASE_URL", "LLM_TIMEOUT_SEC", "DEEPINFRA_API_KEY"]:
             os.environ.pop(k, None)
+
+    # 16. bot.py handlers: allowed-user gate, /do, /teach, /status.
+    #     We mock Update/Context to avoid hitting Telegram.
+    print("\n[16] bot.py handler tests")
+    import asyncio
+    from src.lever_runner import bot as bot_mod
+
+    class _Msg:
+        """Mock for telegram.Message that records reply_text calls."""
+        def __init__(self, text=""):
+            self.text = text
+            self.replies = []
+        async def reply_text(self, text, **kw):
+            self.replies.append(text)
+            return None
+
+    class _User:
+        def __init__(self, uid): self.id = uid
+
+    class _Chat:
+        def __init__(self, cid): self.id = cid
+
+    class _Update:
+        def __init__(self, uid=1, chat_id=1, text="", args=()):
+            self.effective_user = _User(uid)
+            self.effective_chat = _Chat(chat_id)
+            self.message = _Msg(text)
+            self._args = args
+        @property
+        def args(self): return self._args
+
+    class _Ctx:
+        def __init__(self, args=()):
+            self.args = list(args)
+            self.user_data = {}
+            self.chat_data = {}
+            self.application = None
+
+    def run(coro):
+        return asyncio.get_event_loop().run_until_complete(coro) if False else asyncio.run(coro)
+
+    # 16a. _is_authorized: empty allowlist = open
+    saved_allowed = bot_mod.ALLOWED_USER_ID
+    try:
+        bot_mod.ALLOWED_USER_ID = ""
+        u = _Update(uid=999, chat_id=1)
+        check("_is_authorized open when allowlist empty", bot_mod._is_authorized(u) is True)
+
+        # 16b. _is_authorized: with allowlist, wrong user is denied
+        bot_mod.ALLOWED_USER_ID = "42"
+        u = _Update(uid=99, chat_id=1)
+        check("_is_authorized denies wrong uid", bot_mod._is_authorized(u) is False)
+        u = _Update(uid=42, chat_id=1)
+        check("_is_authorized allows matching uid", bot_mod._is_authorized(u) is True)
+
+        # 16c. cmd_do happy path: sends a request, gets a reply
+        bot_mod.ALLOWED_USER_ID = "42"
+        u = _Update(uid=42, chat_id=777, args=["check", "disk", "usage"])
+        run(bot_mod.cmd_do(u, _Ctx(args=["check", "disk", "usage"])))
+        check("cmd_do produced a reply", len(u.message.replies) == 1,
+              f"replies={u.message.replies}")
+        reply = u.message.replies[0] if u.message.replies else ""
+        check("cmd_do reply contains intent", "intent:" in reply or "no matching" in reply,
+              f"reply={reply[:80]!r}")
+
+        # 16d. cmd_do with no args: usage message
+        u = _Update(uid=42, chat_id=777, args=[])
+        run(bot_mod.cmd_do(u, _Ctx(args=[])))
+        check("cmd_do with no args shows usage", "usage: /do" in (u.message.replies[0] or ""))
+
+        # 16e. cmd_teach with bad format: usage message
+        u = _Update(uid=42, chat_id=777, text="/teach hello world")
+        run(bot_mod.cmd_teach(u, _Ctx()))
+        check("cmd_teach with no pipe shows usage",
+              "usage: /teach" in (u.message.replies[0] or ""))
+
+        # 16f. cmd_teach happy path: parses "phrase" | cmd
+        phrase = f"smoke bot teach {uuid.uuid4().hex[:6]}"
+        cmd = "echo SMOKE_BOT_TEACH"
+        u = _Update(uid=42, chat_id=888, text=f'/teach "{phrase}" | {cmd}')
+        run(bot_mod.cmd_teach(u, _Ctx()))
+        check("cmd_teach happy path taught something",
+              "taught" in (u.message.replies[0] or ""),
+              f"reply={u.message.replies[0]!r}")
+
+        # 16g. cmd_status returns count + chat id
+        u = _Update(uid=42, chat_id=999)
+        run(bot_mod.cmd_status(u, _Ctx()))
+        check("cmd_status shows chat id", "chat: 999" in (u.message.replies[0] or ""))
+
+        # 16h. unauthorized user gets a denial
+        bot_mod.ALLOWED_USER_ID = "42"
+        u = _Update(uid=99, chat_id=1, args=["check", "disk"])
+        run(bot_mod.cmd_do(u, _Ctx(args=["check", "disk"])))
+        check("unauthorized user gets denied",
+              "not authorized" in (u.message.replies[0] or ""),
+              f"reply={u.message.replies[0]!r}")
+    finally:
+        bot_mod.ALLOWED_USER_ID = saved_allowed
+
+    # 17. /teach --trust=N override
+    print("\n[17] /teach --trust=N override")
+    from src.lever_runner.orchestrator import teach as orch_teach
+
+    # 17a. orchestrator.teach accepts trust kwarg
+    phrase_a = f"smoke trust override {uuid.uuid4().hex[:6]}"
+    row_id_a = orch_teach(phrase_a, "echo A", trust=70.0)
+    sm = CommandStore(chat_id="default")
+    m = sm.find_best(phrase_a, top_k=1)[0]
+    check("orchestrator.teach honors --trust=70", abs(m.trust_score - 70.0) < 0.01,
+          f"trust={m.trust_score}")
+    sm.soft_delete(row_id_a)
+
+    # 17b. default trust (50) when trust is None
+    phrase_b = f"smoke trust default {uuid.uuid4().hex[:6]}"
+    row_id_b = orch_teach(phrase_b, "echo B")
+    m = sm.find_best(phrase_b, top_k=1)[0]
+    check("orchestrator.teach defaults to trust=50", abs(m.trust_score - 50.0) < 0.01,
+          f"trust={m.trust_score}")
+    sm.soft_delete(row_id_b)
+
+    # 17c. bot.cmd_teach with --trust=70 flag
+    bot_mod.ALLOWED_USER_ID = "42"
+    phrase_c = f"smoke bot teach trust {uuid.uuid4().hex[:6]}"
+    u = _Update(uid=42, chat_id=12345, text=f'/teach --trust=75 "{phrase_c}" | echo C')
+    run(bot_mod.cmd_teach(u, _Ctx()))
+    check("bot cmd_teach with --trust= parses",
+          "trust=75" in (u.message.replies[0] or ""),
+          f"reply={u.message.replies[0]!r}")
+    m = CommandStore(chat_id="12345").find_best(phrase_c, top_k=1)
+    if m:
+        check("bot --trust=75 actually stored trust=75",
+              abs(m[0].trust_score - 75.0) < 0.01, f"trust={m[0].trust_score}")
+        CommandStore(chat_id="12345").soft_delete(m[0].id)
+
+    # 17d. bot.cmd_teach with bad --trust value
+    u = _Update(uid=42, chat_id=12345, text='/teach --trust=abc "phrase" | cmd')
+    run(bot_mod.cmd_teach(u, _Ctx()))
+    check("bot --trust=abc is rejected",
+          "must be a number" in (u.message.replies[0] or ""))
+
+    # 17e. bot.cmd_teach with --trust out of range
+    u = _Update(uid=42, chat_id=12345, text='/teach --trust=200 "phrase" | cmd')
+    run(bot_mod.cmd_teach(u, _Ctx()))
+    check("bot --trust=200 is rejected",
+          "must be a number" in (u.message.replies[0] or ""))
+
+    # 18. /commands listing + pagination
+    print("\n[18] /commands listing")
+    # 18a. orchestrator.list_commands returns dict
+    listing = list_commands(chat_id="default", limit=5, offset=0)
+    check("list_commands returns dict with keys",
+          set(listing.keys()) >= {"chat_id", "commands", "total", "limit", "offset"},
+          f"keys={list(listing.keys())}")
+    check("list_commands respects limit", len(listing["commands"]) <= 5)
+    check("list_commands default has 66 seeded rows", listing["total"] >= 66,
+          f"total={listing['total']}")
+
+    # 18b. pagination: offset=N gives different rows
+    p1 = list_commands(chat_id="default", limit=5, offset=0)
+    p2 = list_commands(chat_id="default", limit=5, offset=5)
+    ids1 = {r["id"] for r in p1["commands"]}
+    ids2 = {r["id"] for r in p2["commands"]}
+    check("pagination offset=0 vs offset=5 are disjoint", len(ids1 & ids2) == 0,
+          f"overlap={ids1 & ids2}")
+
+    # 18c. store.list_all respects min_trust
+    high = CommandStore(chat_id="default").list_all(min_trust=80.0, limit=100)
+    check("list_all min_trust=80 filters out low-trust rows",
+          all(r["trust_score"] >= 80.0 for r in high),
+          f"trusts={[r['trust_score'] for r in high[:5]]}")
+
+    # 18d. bot.cmd_commands basic call
+    u = _Update(uid=42, chat_id=42)
+    run(bot_mod.cmd_commands(u, _Ctx(args=[])))
+    reply = u.message.replies[0] or ""
+    check("bot cmd_commands shows chat id", "chat: 42" in reply, f"reply={reply[:80]!r}")
+    check("bot cmd_commands shows page", "page" in reply, f"reply={reply[:80]!r}")
+
+    # 18e. bot.cmd_commands with custom limit
+    u = _Update(uid=42, chat_id=42)
+    run(bot_mod.cmd_commands(u, _Ctx(args=["5"])))
+    check("bot cmd_commands with N=5 parses", "page" in (u.message.replies[0] or ""))
+
+    # 18f. bot.cmd_commands with --page=2
+    u = _Update(uid=42, chat_id=42)
+    run(bot_mod.cmd_commands(u, _Ctx(args=["5", "--page=2"])))
+    check("bot cmd_commands with --page=2 parses", "page 2/" in (u.message.replies[0] or ""))
+
+    # 18g. bot.cmd_commands with non-numeric limit
+    u = _Update(uid=42, chat_id=42)
+    run(bot_mod.cmd_commands(u, _Ctx(args=["abc"])))
+    check("bot cmd_commands rejects non-numeric limit",
+          "usage: /commands" in (u.message.replies[0] or ""))
+
+    # 19. /stats <phrase> debug
+    print("\n[19] /stats <phrase>")
+    # 19a. bot.cmd_stats with no args
+    u = _Update(uid=42, chat_id=42)
+    run(bot_mod.cmd_stats(u, _Ctx(args=[])))
+    check("bot cmd_stats with no args shows usage",
+          "usage: /stats" in (u.message.replies[0] or ""))
+
+    # 19b. bot.cmd_stats with a known phrase
+    u = _Update(uid=42, chat_id=42)
+    run(bot_mod.cmd_stats(u, _Ctx(args=["show", "disk", "usage"])))
+    reply = u.message.replies[0] or ""
+    check("bot cmd_stats shows phrase", "phrase:" in reply)
+    check("bot cmd_stats shows trust", "trust:" in reply)
+    check("bot cmd_stats shows id", "id:" in reply)
+
+    # 19c. bot.cmd_stats with no match
+    u = _Update(uid=42, chat_id=42)
+    # Use a very-low-similarity phrase: gibberish + a UUID so the embedder
+    # doesn't accidentally match a seed command above the 0.55 floor.
+    gibberish = f"xqzwpf {uuid.uuid4().hex}"
+    run(bot_mod.cmd_stats(u, _Ctx(args=[gibberish])))
+    check("bot cmd_stats with no match says so",
+          "no match" in (u.message.replies[0] or ""),
+          f"reply={u.message.replies[0]!r}")
 
     # 14. Reset all trust scores we touched (should be none — we deleted them)
     print("\n[cleanup] all test rows soft-deleted; trust scores untouched")

@@ -205,6 +205,31 @@ MIT. See [LICENSE](LICENSE).
 
 ## Status
 
+**v0.3.1** — more bot commands, full table introspection.
+
+- **`/commands [N] [--page=K]`** — list the commands in the current
+  chat's table, sorted by trust desc. Default 20 per page, max 100.
+- **`/stats <phrase>`** — full stats for one command: phrase,
+  command, trust, success/failure counts, created/last_run
+  timestamps, embedding distance/similarity, id. Respects
+  `MATCH_SIMILARITY_FLOOR` — a phrase with no close match returns
+  "no match" plus the top similarity for context.
+- **`/teach --trust=N` flag** — override the starting trust when
+  teaching a new command. Useful for "I know this command is
+  solid, start it at 80" or "this came from a less-trusted
+  source, start at 30". Also works in the CLI:
+  `python -m lever_runner teach --trust=80 "phrase" | cmd`.
+- **`store.list_all(...)`** — new method on `CommandStore` for
+  paginated listing, with `limit`, `offset`, `min_trust` knobs.
+  Used by `orchestrator.list_commands()` and the bot handler.
+- **`store.get_by_id(row_id)`** — fetch a single row with full
+  metadata (last_run, last_result, created_at, etc.). Used by
+  `/stats` to pull everything we have on a command.
+- **Pandas added to `requirements.txt`** — lancedb's `.to_pandas()`
+  was a transitive dep, but newer lancedb versions don't declare
+  it as a hard requirement, so the smoke test for `/commands`
+  could fail in fresh envs. Declared explicitly.
+
 **v0.3.0** — DeepInfra backend, provider fallback chain.
 
 - **Provider fallback chain (v0.3).** `LLM_FALLBACKS` env var

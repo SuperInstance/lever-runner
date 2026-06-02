@@ -144,12 +144,38 @@ def teach(
     command: str,
     *,
     chat_id: str = "default",
+    trust: float | None = None,
     store: CommandStore | None = None,
 ) -> str:
+    """Insert a new command. ``trust`` overrides the default new-command
+    trust (TRUST_NEW_COMMAND, normally 50). Useful for "I know this is
+    a good command, start it higher" or "this came from a less-trusted
+    source, start it lower"."""
     store = store or CommandStore(chat_id=chat_id)
-    return store.teach(intent_phrase, command)
+    return store.teach(intent_phrase, command, trust=trust)
 
 
 def status(chat_id: str = "default", *, store: CommandStore | None = None) -> dict:
     store = store or CommandStore(chat_id=chat_id)
     return {"command_count": store.count(), "chat_id": chat_id}
+
+
+def list_commands(
+    chat_id: str = "default",
+    *,
+    limit: int = 20,
+    offset: int = 0,
+    min_trust: float = 0.0,
+    store: CommandStore | None = None,
+) -> dict:
+    """List commands in the table, sorted by trust desc. Returns a dict
+    with `commands` (list of dicts) and `total` (unfiltered count)."""
+    store = store or CommandStore(chat_id=chat_id)
+    rows = store.list_all(limit=limit, offset=offset, min_trust=min_trust)
+    return {
+        "chat_id": chat_id,
+        "commands": rows,
+        "limit": limit,
+        "offset": offset,
+        "total": store.count(),
+    }

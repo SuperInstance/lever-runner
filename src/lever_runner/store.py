@@ -200,6 +200,40 @@ class CommandStore:
         rows = self.table.search().limit(1).where("id = '__schema_seed__'").to_list()
         return n - len(rows)
 
+    def list_all(
+        self,
+        *,
+        limit: int = 50,
+        offset: int = 0,
+        min_trust: float = 0.0,
+        only_active: bool = True,
+    ) -> list[dict]:
+        """Return up to `limit` commands, skipping soft-deleted rows and the
+        schema seed. `min_trust` filters out low-trust entries. Sorted by
+        `trust_score` descending so the most-trusted commands come first.
+
+        `offset` is implemented as a Python-side slice because lancedb's
+        .to_pandas() / .search() pagination semantics vary by version; the
+        tables we're listing from are O(hundreds) rows so this is fine.
+        """
+        # ``only_active`` uses trust_score >= 1 as a proxy for "not soft-
+        # deleted" because soft_delete() zeroes the trust_score.
+        trust_floor = max(min_trust, 1.0) if only_active else min_trust
+        df = self.table.to_pandas()
+        df = df[df["id"] != "__schema_seed__"]
+        df = df[df["trust_score"] >= trust_floor]
+        df = df.sort_values("trust_score", ascending=False)
+        df = df.iloc[offset : offset + limit]
+        return df.to_dict(orient="records")
+
+    def get_by_id(self, row_id: str) -> dict | None:
+        """Return one row by id, or None. Includes all metadata fields."""
+        df = self.table.to_pandas()
+        df = df[df["id"] == row_id]
+        if df.empty:
+            return None
+        return df.iloc[0].to_dict()
+
     def find_best(self, intent_phrase: str, top_k: int = 3) -> list[Match]:
         """Return top-k matches sorted by ascending L2 distance (best first),
         dropping the schema seed."""

@@ -5,6 +5,9 @@
 lancedb>=0.6,<1.0
 pylance>=0.7
 pyarrow>=14
+# lancedb's .to_pandas() pulls pandas transitively but it's an
+# optional dep on newer versions, so we declare it explicitly.
+pandas>=2.0
 
 # Local embeddings
 sentence-transformers>=2.6
