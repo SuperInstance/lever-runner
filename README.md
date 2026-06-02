@@ -48,13 +48,15 @@ trust score." A community-vetted command table does the rest.
 
 ## Headline numbers
 
-- **< 200 tokens** per executed command (target). Real tool-calling agents
-  routinely spend 1,500–8,000 tokens of prompt overhead before the user is even
-  considered.
+- **< 200 tokens** per executed command (target; real production cost is
+  ~70–90 with a hosted LLM, ~6 with `LLM_BACKEND=passthrough`). Tool-calling
+  agents routinely spend 1,500–8,000 tokens of prompt overhead per turn.
 - **24 GB RAM** is enough. `all-MiniLM-L6-v2` is ~80 MB; `llama3.1:8b-instruct-q4_K_M`
-  fits comfortably alongside it.
-- **$0/month** on Oracle Cloud Free Tier. Local LLM, embedded DB, no API
-  required for the hot path.
+  fits comfortably alongside it. (Note: this is additive — running both
+  OpenClaw and lever-runner on the same box requires both stacks' RAM.)
+- **$0/month** on Oracle Cloud Free Tier. Local LLM option, embedded DB, no
+  API required for the hot path (set `LLM_BACKEND=passthrough` to skip the
+  LLM entirely; the user request becomes the intent phrase verbatim).
 
 ## How it works (the loop)
 
@@ -85,11 +87,18 @@ user request
 trust += success ? +Δ : -Δ,  log everything
 ```
 
-A cron job runs `auto_promote.py` every hour. Commands that fail 5+ times with
-trust < 30 get sent to a stronger remote LLM (Claude 3.5 Sonnet by default)
-to be rewritten, and the new version is inserted at trust 40. Commands that
-succeed 20+ times climb toward 90 and become "trusted" — they're picked
-preferentially even when other matches exist.
+A cron job runs `auto_promote.py` every hour. It does two things:
+
+1. **Promotes winners.** Commands with `success_count > 20` and `trust_score < 90`
+   get `+10` trust (clamped at 100).
+2. **Surfaces losers.** Commands with `trust_score < 30` and
+   `failure_count > 5` are printed as a recommendation list. If
+   `REMOTE_LLM_API_KEY` is set, they are also sent to a configurable
+   remote LLM (default `claude-3-5-sonnet-latest`, override with
+   `REMOTE_LLM_MODEL`) for a proposed correction, which is inserted at
+   trust 40 and the old row is soft-deleted. **If the key is unset, step 2
+   is a no-op and the script just prints the failing list** — no surprise
+   network calls.
 
 ## Install
 
@@ -128,14 +137,19 @@ curl -X POST http://localhost:8765/run -d '{"request": "restart nginx"}' -H 'con
 
 | | **Lever-Runner** | **OpenClaw / Hermes Agent** | **LangChain ReAct** |
 |---|---|---|---|
-| Token cost / turn | **< 200** | 1,500 – 8,000 | 2,000 – 10,000 |
+| Token cost / turn | **< 200** (target); ~70–90 in prod, ~6 with passthrough | 1,500 – 8,000 | 2,000 – 10,000 |
 | LLM sees shell? | **No** | Yes (via tool schema) | Yes |
 | Prompt-injection blast radius | Low (no shell synthesis) | High | High |
 | Adds a new capability | `/teach` in Telegram (1 message) | Edit code, redeploy | Edit code, redeploy |
-| Self-improves | Yes (auto_promote.py) | No (out of band) | No (out of band) |
-| Offline-capable | **Yes** | Partially | No (usually) |
-| Min. RAM | **4 GB** | 8 GB + remote calls | 8 GB + remote calls |
-| Cloud bill | **$0** | $5 – $50+/mo | $20 – $200+/mo |
+| Self-improves | Yes (auto_promote.py; rewrites gated on opt-in key) | No (out of band) | No (out of band) |
+| Offline-capable | **Yes** (with `passthrough` or local Ollama) | Partially | No (usually) |
+| Min. RAM | 4 GB (passthrough); 12 GB+ with local 8B model | 8 GB + remote calls | 8 GB + remote calls |
+| Cloud bill | **$0** (local) / pennies (hosted) | $5 – $50+/mo | $20 – $200+/mo |
+
+**Caveats:** The "Min. RAM" row assumes lever-runner is the only thing
+running. If you run it alongside OpenClaw on the same box, add the
+stacks' RAM. The "$0" claim assumes `LLM_BACKEND=passthrough` or a local
+Ollama install; `minimax`/`openai` backends cost API tokens.
 
 ## Community Skills
 
@@ -191,4 +205,6 @@ MIT. See [LICENSE](LICENSE).
 ## Status
 
 **v0.1.0** — initial release. Telegram bot, LanceDB store, embedding pipeline,
-50-command seed pack, hourly self-improvement loop, token benchmark.
+49-command seed pack, hourly self-improvement loop (promote + optional
+rewrite), token benchmark. See `benchmark.py` for the measurement setup;
+the headline number assumes `LLM_BACKEND=passthrough` unless stated.
