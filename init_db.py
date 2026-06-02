@@ -254,8 +254,21 @@ def build(embedder, *, reset: bool = False) -> int:
 def main() -> int:
     parser = argparse.ArgumentParser(description="Initialize the Lever-Runner LanceDB.")
     parser.add_argument("--reset", action="store_true",
-                        help="Drop the existing table and rebuild from the seed pack.")
+                        help="Drop the existing table and rebuild from the seed pack. "
+                             "Destructive: any commands you /teach'ed will be lost.")
+    parser.add_argument("--yes", action="store_true",
+                        help="Required with --reset. Skips the interactive confirm. "
+                             "Prevents `install.sh` from wiping data on re-install.")
     args = parser.parse_args()
+
+    if args.reset and not args.yes:
+        print(
+            "ERROR: --reset is destructive. It drops the existing table, "
+            "wiping any commands you /teach'ed. Re-run with --reset --yes "
+            "if you're sure.",
+            file=sys.stderr,
+        )
+        return 2
 
     print(f"[init] lancedb path : {LANCEDB_PATH}")
     print(f"[init] table        : {LANCEDB_TABLE}")

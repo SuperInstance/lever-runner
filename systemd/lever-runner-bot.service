@@ -5,15 +5,37 @@ Wants=network-online.target
 
 [Service]
 Type=simple
+# Default install location; override with `Environment=LEVER_RUNNER_DIR=...`
+# before `systemctl daemon-reload` to relocate.
 WorkingDirectory=/home/ubuntu/lever-runner
 EnvironmentFile=/home/ubuntu/lever-runner/.env
-# `lever-runner-bot` is a console-script entry point installed by
-# `pip install -e .`. It calls bot:Application.run_polling().
 ExecStart=/home/ubuntu/lever-runner/.venv/bin/lever-runner-bot
 Restart=on-failure
 RestartSec=5
 User=ubuntu
 Group=ubuntu
+
+# Resource limits (defense against runaway memory / fd exhaustion).
+MemoryMax=2G
+MemoryHigh=1.5G
+LimitNOFILE=65536
+LimitNPROC=4096
+CPUQuota=200%
+
+# Hardening. Read-only root + /home; bot only needs /home/ubuntu/lever-runner
+# (r/w) and /tmp/lever-runner (sandbox). No exec outside ExecStart.
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=true
+ReadWritePaths=/home/ubuntu/lever-runner/data /home/ubuntu/lever-runner/logs /tmp/lever-runner
+
+# Output goes to journald by default; `journalctl -u lever-runner-bot`
+# reads it. `StandardOutput=journal` is explicit so the bot works on
+# non-systemd hosts (Docker, k8s) too.
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=lever-runner-bot
 
 [Install]
 WantedBy=multi-user.target

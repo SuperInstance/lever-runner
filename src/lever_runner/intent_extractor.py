@@ -27,7 +27,9 @@ import requests
 
 log = logging.getLogger("lever-runner.intent")
 
-DEFAULT_TIMEOUT_SEC = float(os.getenv("LLM_TIMEOUT_SEC", "5"))
+def _timeout_sec() -> float:
+    """Return the current LLM timeout from env (dynamic so tests can override at runtime)."""
+    return float(os.getenv("LLM_TIMEOUT_SEC", "5"))
 
 # Default fallback chain. Comma-separated backends tried in order
 # after the primary errors with a retryable condition. Empty string
@@ -126,7 +128,7 @@ def _post_minimax_or_openai(
     system: str,
     user: str,
     *,
-    timeout_sec: float = DEFAULT_TIMEOUT_SEC,
+    timeout_sec: float = _timeout_sec(),
 ) -> str:
     """Call any Anthropic-compatible or OpenAI-compatible chat endpoint."""
     # Detect the wire format. MiniMax exposes /v1/messages (Anthropic).
@@ -147,8 +149,27 @@ def _post_minimax_or_openai(
         r = requests.post(url, headers=headers, json=body, timeout=timeout_sec)
         r.raise_for_status()
         data = r.json()
-        # Anthropic: content[0].text
-        return data["content"][0]["text"].strip()
+        # Anthropic: content blocks may include thinking tokens.
+        # Iterate to find the text block; skip thinking/signature blocks.
+        content = data.get("content", [])
+        if isinstance(content, list):
+            for block in content:
+                if isinstance(block, dict):
+                    block_type = block.get("type", "")
+                    if block_type == "text":
+                        return block.get("text", "").strip()
+                elif isinstance(block, str):
+                    return block.strip()
+        if isinstance(content, str):
+            return content.strip()
+        if content:
+            # Last resort: stringify the first block.
+            block = content[0]
+            if isinstance(block, dict):
+                return str(block.get("text", block.get("content", str(block)))).strip()
+            if isinstance(block, str):
+                return block.strip()
+        raise ValueError(f"unexpected Anthropic response: content={content!r}")
 
     # OpenAI-compatible fallback
     url = base_url.rstrip("/") + "/chat/completions"
@@ -176,7 +197,7 @@ def _post_ollama(
     system: str,
     user: str,
     *,
-    timeout_sec: float = DEFAULT_TIMEOUT_SEC,
+    timeout_sec: float = _timeout_sec(),
 ) -> str:
     url = host.rstrip("/") + "/api/chat"
     body = {

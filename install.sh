@@ -39,18 +39,23 @@ fi
 source .venv/bin/activate
 echo "==> pip install"
 pip install --quiet --upgrade pip
-pip install --quiet -r requirements.txt
+# `pip install -e .` (not `-r requirements.txt`) so the `lever-runner-*`
+# console scripts land in .venv/bin/. The systemd unit's ExecStart=
+# references /home/ubuntu/lever-runner/.venv/bin/lever-runner-bot,
+# which only exists if we install the package.
+pip install --quiet -e .
 
 # 4. .env
 if [ ! -f .env ]; then
   echo "==> creating .env from .env.example"
   cp .env.example .env
+  chmod 600 .env
   echo "    *** edit .env to set TELEGRAM_BOT_TOKEN and (optionally) LLM_API_KEY ***"
 fi
 
-# 5. seed the database
+# 5. seed the database (idempotent: only seeds if empty)
 echo "==> seeding LanceDB (this downloads the embedding model on first run)"
-python init_db.py --reset
+python init_db.py
 
 # 6. systemd (optional)
 if command -v systemctl >/dev/null 2>&1; then

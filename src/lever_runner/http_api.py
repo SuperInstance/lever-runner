@@ -1,9 +1,22 @@
 """
-http_api.py — minimal JSON HTTP API on :8765.
+http_api.py — minimal JSON HTTP API.
 
     POST /run   {"request": "check disk usage", "chat_id": "..."}
     POST /teach {"intent_phrase": "...", "command": "...", "chat_id": "..."}
     GET  /status?chat_id=...
+    GET  /healthz
+
+Security model:
+- Binds to 127.0.0.1 by default (loopback only). Set HTTP_BIND=0.0.0.0
+  if you really need LAN access; that is almost never the right call.
+- If HTTP_API_TOKEN is set, /run and /teach require
+  `Authorization: Bearer <token>`. /healthz and /status stay open
+  so external monitors can poll them. /run executes pre-approved
+  commands; /teach can insert arbitrary shell, so /teach is the
+  privileged one and always requires auth when a token is set.
+- If HTTP_API_TOKEN is unset and the bind is loopback, the API is
+  open (trusted local user). If HTTP_API_TOKEN is unset and the
+  bind is non-loopback, the API refuses to start.
 
 chat_id is optional in every request. Defaults to "default" if
 unspecified. We use stdlib http.server so we don't pull in a web
@@ -14,6 +27,7 @@ from __future__ import annotations
 
 import json
 import os
+import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
@@ -27,7 +41,28 @@ import time
 
 load_dotenv()
 PORT = int(os.getenv("HTTP_PORT", "8765"))
+BIND = os.getenv("HTTP_BIND", "127.0.0.1")
+API_TOKEN = os.getenv("HTTP_API_TOKEN", "").strip()
 _STARTED_AT = time.time()
+
+
+def _is_loopback(host: str) -> bool:
+    """True if the bind address is loopback (127.0.0.0/8 or ::1)."""
+    if host in ("127.0.0.1", "localhost", "::1"):
+        return True
+    if host.startswith("127."):
+        return True
+    return False
+
+
+def _check_token(headers) -> bool:
+    """True if the request's Authorization header matches HTTP_API_TOKEN."""
+    if not API_TOKEN:
+        return True  # no token configured = open
+    auth = headers.get("authorization", "")
+    if not auth.lower().startswith("bearer "):
+        return False
+    return auth.split(" ", 1)[1].strip() == API_TOKEN
 
 
 def _chat_id_from(data: dict, qs: dict) -> str:
@@ -95,6 +130,12 @@ class Handler(BaseHTTPRequestHandler):
         url = urlparse(self.path)
         qs = parse_qs(url.query)
         path = url.path
+        # All POST endpoints can mutate state (/teach) or trigger
+        # command execution (/run). Require the bearer token if one
+        # is configured.
+        if not _check_token(self.headers):
+            self._send(401, {"error": "missing or invalid bearer token (set HTTP_API_TOKEN)"})
+            return
         chat_id = _chat_id_from(data, qs)
 
         if path == "/run":
@@ -127,8 +168,21 @@ class Handler(BaseHTTPRequestHandler):
 
 
 def main() -> int:
-    srv = ThreadingHTTPServer(("0.0.0.0", PORT), Handler)
-    print(f"lever-runner http api on :{PORT}")
+    if not _is_loopback(BIND) and not API_TOKEN:
+        print(
+            f"refusing to start: HTTP_BIND={BIND!r} is non-loopback and HTTP_API_TOKEN is unset. "
+            "Anyone who can reach this host could /teach and /run arbitrary commands. "
+            "Either set HTTP_BIND=127.0.0.1 (default) or set HTTP_API_TOKEN to a strong secret.",
+            file=sys.stderr,
+        )
+        return 1
+    srv = ThreadingHTTPServer((BIND, PORT), Handler)
+    bind_label = BIND
+    auth_label = "auth=off (loopback only)" if _is_loopback(BIND) and not API_TOKEN else (
+        f"auth=bearer (token={API_TOKEN[:4]}…{API_TOKEN[-4:]})" if API_TOKEN
+        else "auth=off (loopback, no token)"
+    )
+    print(f"lever-runner http api on {bind_label}:{PORT}  {auth_label}")
     srv.serve_forever()
     return 0
 
