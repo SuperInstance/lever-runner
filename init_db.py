@@ -118,6 +118,29 @@ SEED_COMMANDS: List[Dict[str, str]] = [
     {"intent": "show ollama version",                      "command": "ollama --version"},
     {"intent": "show running ollama models",               "command": "curl -s http://localhost:11434/api/ps"},
     {"intent": "show ollama logs",                         "command": "journalctl -u ollama --since today --no-pager"},
+
+    # --- openclaw (this host runs it as a gateway on :18789) ---------------
+    {"intent": "show openclaw version",                    "command": "openclaw --version"},
+    {"intent": "show openclaw gateway status",             "command": "systemctl status openclaw --no-pager 2>/dev/null || pgrep -af openclaw"},
+    {"intent": "tail openclaw logs",                       "command": "journalctl -u openclaw --since today --no-pager 2>/dev/null || tail -n 50 /home/linuxbrew/.linuxbrew/var/log/openclaw/*.log 2>/dev/null || echo 'no openclaw logs found'"},
+    {"intent": "show openclaw config path",                "command": "ls -la /home/linuxbrew/.linuxbrew/etc/openclaw/ 2>/dev/null || echo 'no openclaw config dir'"},
+
+    # --- lever-runner self-ops (so it can manage itself) -------------------
+    {"intent": "show lever-runner version",                "command": "cd ~/lever-runner && .venv/bin/python -c 'from src.lever_runner import __version__; print(__version__)'"},
+    {"intent": "show lever-runner git log",                "command": "cd ~/lever-runner && git log --oneline -n 10"},
+    {"intent": "show lever-runner git status",             "command": "cd ~/lever-runner && git status"},
+    {"intent": "run lever-runner benchmark",               "command": "cd ~/lever-runner && .venv/bin/python -m src.lever_runner.benchmark"},
+    {"intent": "show lever-runner command count",          "command": "cd ~/lever-runner && .venv/bin/python -c 'from src.lever_runner.store import CommandStore; print(CommandStore().count(), \"commands\")'"},
+    {"intent": "tail lever-runner token log",              "command": "tail -n 20 ~/lever-runner/logs/token_usage.jsonl 2>/dev/null || echo 'no token log yet'"},
+    {"intent": "reseed lever-runner database",             "command": "cd ~/lever-runner && .venv/bin/python init_db.py --reset"},
+    {"intent": "show lever-runner sandbox contents",       "command": "ls -la /tmp/lever-runner/ 2>/dev/null | head -20 || echo 'no sandbox yet'"},
+
+    # --- this host (Oracle ARM, Ubuntu 22.04) ------------------------------
+    {"intent": "show oracle instance metadata",            "command": "curl -s -H 'Authorization: Bearer OracleCloud' http://169.254.169.254/opc/v2/instance/metadata/ 2>/dev/null | head -50 || echo 'not on Oracle Cloud or metadata service unreachable'"},
+    {"intent": "show apt packages with updates",           "command": "apt list --upgradable 2>/dev/null | head -20"},
+    {"intent": "show ubuntu version",                      "command": "lsb_release -a 2>/dev/null || cat /etc/os-release | head -5"},
+    {"intent": "show top 10 processes by memory",          "command": "ps aux --sort=-%mem | head -11"},
+    {"intent": "show top 10 processes by cpu",             "command": "ps aux --sort=-%cpu | head -11"},
 ]
 
 
