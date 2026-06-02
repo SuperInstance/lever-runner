@@ -1,0 +1,34 @@
+# Pre-commit hooks for Lever-Runner
+#
+# Install once:  pre-commit install
+# Run manually:  pre-commit run --all-files
+#
+# Cheap: smoke test runs in <2s; ruff in <1s. Total <5s per commit.
+# Bypass with:   git commit --no-verify  (use sparingly; the smoke test
+#                catches the trust-selection inversion regression that
+#                would otherwise ship)
+
+repos:
+  - repo: local
+    hooks:
+      - id: smoke-test
+        name: lever-runner smoke test (18 checks)
+        entry: .venv/bin/python -m tests.smoke
+        language: system
+        pass_filenames: false
+        always_run: true
+        stages: [pre-commit]
+
+      - id: ruff-check
+        name: ruff lint
+        entry: .venv/bin/python -m ruff check
+        language: system
+        types: [python]
+        stages: [pre-commit]
+
+      - id: ruff-format
+        name: ruff format
+        entry: .venv/bin/python -m ruff format --check
+        language: system
+        types: [python]
+        stages: [pre-commit]
