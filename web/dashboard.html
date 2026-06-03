@@ -1,0 +1,240 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1">
+  <title>Lever-Runner Dashboard</title>
+  <style>
+    :root {
+      --bg: #fafafa; --fg: #1a1a1a; --muted: #888;
+      --accent: #2c5; --danger: #e44; --border: #ddd;
+      --code-bg: #f0f0f0;
+    }
+    * { box-sizing: border-box; }
+    body { font-family: -apple-system,BlinkMacSystemFont,"Segoe UI",sans-serif;
+           background: var(--bg); color: var(--fg); margin: 0; padding: 0; }
+    .layout { display: grid; grid-template-columns: 1fr 400px; gap: 0; min-height: 100vh; }
+    @media (max-width: 800px) { .layout { grid-template-columns: 1fr; } }
+    .main { padding: 1.5rem; overflow-y: auto; }
+    .side { padding: 1.5rem; border-left: 1px solid var(--border);
+            background: #fff; overflow-y: auto; }
+    @media (max-width: 800px) { .side { border-left: none; border-top: 2px solid var(--border); } }
+    h1 { font-size: 1.3rem; margin: 0 0 0.3rem; }
+    .subtitle { color: var(--muted); font-size: 0.85rem; margin: 0 0 1rem; }
+    table { border-collapse: collapse; width: 100%; font-size: 0.85rem; }
+    th, td { text-align: left; padding: 0.4rem 0.5rem; border-bottom: 1px solid var(--border); }
+    th { background: var(--code-bg); position: sticky; top: 0; }
+    .trust-bar { display: inline-block; height: 6px; border-radius: 3px; background: #ddd; width: 60px; vertical-align: middle; }
+    .trust-bar-fill { display: block; height: 6px; border-radius: 3px; background: var(--accent); }
+    .trust-bar-fill.low { background: var(--danger); }
+    .ok-tag { display: inline-block; padding: 0 6px; border-radius: 3px; font-size: 0.75rem; background: #cfc; }
+    .fail-tag { display: inline-block; padding: 0 6px; border-radius: 3px; font-size: 0.75rem; background: #fcc; }
+    .code { font-family: ui-monospace,"SF Mono",monospace; font-size: 0.82rem;
+            background: var(--code-bg); padding: 0.1rem 0.3rem; border-radius: 3px; }
+    input, textarea, select { width: 100%; padding: 0.5rem; margin: 0.25rem 0 0.6rem;
+              border: 1px solid var(--border); border-radius: 4px; font-size: 0.9rem; }
+    textarea { font-family: monospace; resize: vertical; min-height: 50px; }
+    button { padding: 0.5rem 1rem; border: none; border-radius: 4px;
+             cursor: pointer; font-size: 0.9rem; }
+    btn.primary { background: var(--accent); color: #fff; }
+    btn.primary:hover { opacity: 0.9; }
+    .result-box { background: #fff; border: 1px solid var(--border);
+                  border-radius: 4px; padding: 0.75rem; margin: 0.5rem 0;
+                  white-space: pre-wrap; font-family: monospace; font-size: 0.82rem; }
+    .result-box.ok { border-left: 3px solid var(--accent); }
+    .result-box.fail { border-left: 3px solid var(--danger); }
+    .loading { color: var(--muted); font-style: italic; }
+    .empty { color: var(--muted); text-align: center; padding: 2rem; }
+    .nav { display: flex; gap: 0.5rem; align-items: center; flex-wrap: wrap; }
+    .nav a { color: var(--accent); text-decoration: none; font-size: 0.85rem; }
+    .nav a:hover { text-decoration: underline; }
+    .badge { display: inline-block; padding: 0 6px; border-radius: 10px; font-size: 0.75rem;
+             background: var(--code-bg); }
+    .search-box { margin-bottom: 0.75rem; }
+    pre { margin: 0; white-space: pre-wrap; word-break: break-all; }
+  </style>
+</head>
+<body>
+<div class="layout">
+<div class="main">
+  <div class="nav">
+    <h1>Lever-Runner</h1>
+    <span class="badge" id="versionBadge"></span>
+    <span class="badge" id="countBadge"></span>
+    <span style="flex:1"></span>
+    <a href="https://github.com/SuperInstance/lever-runner">repo</a>
+    <a href="javascript:refreshTable()">↻ refresh</a>
+  </div>
+  <p class="subtitle">Command table · click a row to run or inspect</p>
+  <input class="search-box" id="searchInput" placeholder="Filter commands..." oninput="filterTable()">
+  <div style="overflow-x:auto">
+  <table><thead><tr>
+    <th>Trust</th><th>Phrase</th><th>Command</th><th>S/F</th><th>Last run</th>
+  </tr></thead><tbody id="tableBody">
+    <tr><td colspan="5" class="loading">Loading...</td></tr>
+  </tbody></table>
+  </div>
+</div>
+<div class="side" id="sidePanel">
+  <h2 style="margin-top:0;font-size:1rem">Run a command</h2>
+  <input id="runInput" placeholder='e.g. "check disk usage"' onkeydown="if(event.key==='Enter')runCmd()">
+  <div style="display:flex;gap:0.5rem">
+    <button class="primary" onclick="runCmd()" style="flex:1">▶ Run</button>
+  </div>
+  <div id="runResult"></div>
+
+  <h2 style="margin-top:1.5rem;font-size:1rem">Teach a new command</h2>
+  <input id="teachPhrase" placeholder="Intent phrase (3-8 words)">
+  <textarea id="teachCmd" placeholder="Shell command"></textarea>
+  <div style="display:flex;gap:0.5rem">
+    <input id="teachTrust" placeholder="Trust (0-100, optional)" style="flex:1">
+    <button class="primary" onclick="teachCmd()">Teach</button>
+  </div>
+  <div id="teachResult"></div>
+
+  <h2 style="margin-top:1.5rem;font-size:1rem">Activity</h2>
+  <div id="activityLog"><div class="empty">No activity yet</div></div>
+</div>
+</div>
+
+<script>
+const API = '';
+let commands = [];
+
+async function apiGet(path) {
+  const r = await fetch(API + path);
+  return r.json();
+}
+async function apiPost(path, body) {
+  const r = await fetch(API + path, {
+    method: 'POST',
+    headers: {'Content-Type': 'application/json'},
+    body: JSON.stringify(body)
+  });
+  return r.json();
+}
+
+function trustBar(val) {
+  const pct = Math.min(val, 100);
+  const cls = val < 30 ? 'low' : '';
+  return `<span class="trust-bar"><span class="trust-bar-fill ${cls}" style="width:${pct}%"></span></span> ${Math.round(val)}`;
+}
+
+async function refreshTable() {
+  document.getElementById('tableBody').innerHTML = '<tr><td colspan="5" class="loading">Loading...</td></tr>';
+  try {
+    const data = await apiGet('/commands');
+    commands = data.commands || data || [];
+    if (Array.isArray(commands)) {
+      document.getElementById('countBadge').textContent = commands.length + ' cmds';
+    }
+    if (data.version) document.getElementById('versionBadge').textContent = 'v' + data.version;
+    renderTable();
+  } catch(e) {
+    document.getElementById('tableBody').innerHTML = `<tr><td colspan="5" class="empty">Failed to load: ${e.message}</td></tr>`;
+  }
+}
+
+function renderTable() {
+  const q = (document.getElementById('searchInput').value || '').toLowerCase();
+  const filtered = commands.filter(c =>
+    (c.phrase || c.intent || '').toLowerCase().includes(q) ||
+    (c.command || '').toLowerCase().includes(q)
+  );
+  if (filtered.length === 0) {
+    document.getElementById('tableBody').innerHTML = '<tr><td colspan="5" class="empty">No commands found</td></tr>';
+    return;
+  }
+  document.getElementById('tableBody').innerHTML = filtered.map(c => {
+    const phrase = c.phrase || c.intent || '?';
+    const cmd = c.command || '';
+    const trust = c.trust_score ?? c.trust ?? 50;
+    const ok = c.success_count ?? 0;
+    const fail = c.failure_count ?? 0;
+    const last = c.last_run ? new Date(c.last_run).toLocaleString() : '—';
+    const cmdShort = cmd.length > 50 ? cmd.slice(0, 47) + '...' : cmd;
+    return `<tr onclick="selectRow('${phrase.replace(/'/g,"\\'")}')" style="cursor:pointer">
+      <td>${trustBar(trust)}</td>
+      <td class="code">${phrase}</td>
+      <td class="code">${cmdShort}</td>
+      <td><span class="ok-tag">${ok}</span>/<span class="fail-tag">${fail}</span></td>
+      <td style="font-size:0.8rem;color:var(--muted)">${last}</td>
+    </tr>`;
+  }).join('');
+}
+
+function filterTable() { renderTable(); }
+
+function selectRow(phrase) {
+  document.getElementById('runInput').value = phrase;
+  runCmd();
+}
+
+async function runCmd() {
+  const req = document.getElementById('runInput').value.trim();
+  if (!req) return;
+  const box = document.getElementById('runResult');
+  box.innerHTML = '<span class="loading">Running...</span>';
+  addActivity('Run: ' + req);
+  try {
+    const data = await apiPost('/run', {request: req});
+    const ok = data.ok;
+    box.innerHTML = `<div class="result-box ${ok ? 'ok' : 'fail'}">
+      <div><b>intent:</b> ${data.intent || '?'}</div>
+      <div><b>command:</b> ${data.command || '(no match)'}</div>
+      <div><b>exit:</b> ${data.exit_code ?? '—'}</div>
+      <div><b>stdout:</b>\n${data.stdout || '(empty)'}</div>
+      ${data.stderr ? `<div><b>stderr:</b>\n${data.stderr}</div>` : ''}
+      ${data.tokens_in ? `<div style="font-size:0.8rem;color:var(--muted);margin-top:0.3rem">tokens: ${data.tokens_in} in / ${data.tokens_out} out</div>` : ''}
+    </div>`;
+    refreshTable();
+    addActivity(ok ? '✅ ' + req : '❌ ' + req);
+  } catch(e) {
+    box.innerHTML = `<div class="result-box fail">Error: ${e.message}</div>`;
+  }
+}
+
+async function teachCmd() {
+  const phrase = document.getElementById('teachPhrase').value.trim();
+  const cmd = document.getElementById('teachCmd').value.trim();
+  const trust = document.getElementById('teachTrust').value.trim();
+  if (!phrase || !cmd) {
+    document.getElementById('teachResult').innerHTML = '<div class="result-box fail">Fill in both phrase and command</div>';
+    return;
+  }
+  const box = document.getElementById('teachResult');
+  box.innerHTML = '<span class="loading">Teaching...</span>';
+  addActivity('Teach: ' + phrase + ' → ' + cmd);
+  try {
+    const body = {intent_phrase: phrase, command: cmd};
+    if (trust) body.trust = parseInt(trust);
+    const data = await apiPost('/teach', body);
+    box.innerHTML = `<div class="result-box ok">Taught as id=${data.id} ${data.chat_id ? '(chat: ' + data.chat_id + ')' : ''}</div>`;
+    document.getElementById('teachPhrase').value = '';
+    document.getElementById('teachCmd').value = '';
+    document.getElementById('teachTrust').value = '';
+    refreshTable();
+    addActivity('📚 ' + phrase + ' → ' + cmd);
+  } catch(e) {
+    box.innerHTML = `<div class="result-box fail">Error: ${e.message}</div>`;
+  }
+}
+
+function addActivity(msg) {
+  const log = document.getElementById('activityLog');
+  const time = new Date().toLocaleTimeString();
+  if (log.querySelector('.empty')) log.innerHTML = '';
+  const el = document.createElement('div');
+  el.style.cssText = 'padding:0.2rem 0;font-size:0.82rem;border-bottom:1px solid #f0f0f0';
+  el.innerHTML = `<span style="color:var(--muted)">${time}</span> ${msg}`;
+  log.prepend(el);
+  // keep last 50
+  while (log.children.length > 50) log.removeChild(log.lastChild);
+}
+
+// Refresh every 15s
+refreshTable();
+setInterval(refreshTable, 15000);
+</script>
+</body>
+</html>

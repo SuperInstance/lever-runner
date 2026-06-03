@@ -58,6 +58,7 @@ lever-runner-promote = "lever_runner.auto_promote:main"
 lever-runner-export = "lever_runner.seed_export:main"
 lever-runner-import = "lever_runner.seed_import:main"
 lever-runner-doctor = "lever_runner.doctor:main"
+lever-runner-http = "lever_runner.http_api:main"
 
 [project.urls]
 Homepage = "https://github.com/SuperInstance/lever-runner"

@@ -33,7 +33,7 @@ from urllib.parse import parse_qs, urlparse
 
 from dotenv import load_dotenv
 
-from .orchestrator import do, status, teach
+from .orchestrator import do, status, teach, list_commands
 from .store import LANCEDB_PATH, LANCEDB_TABLE_PREFIX, LEGACY_TABLE
 from .__init__ import __version__
 import lancedb
@@ -72,6 +72,15 @@ def _chat_id_from(data: dict, qs: dict) -> str:
 
 
 class Handler(BaseHTTPRequestHandler):
+    MIME_TYPES = {
+        ".html": "text/html; charset=utf-8",
+        ".css": "text/css",
+        ".js": "application/javascript",
+        ".json": "application/json",
+        ".png": "image/png",
+        ".svg": "image/svg+xml",
+    }
+
     def _send(self, code: int, payload: dict) -> None:
         body = json.dumps(payload).encode()
         self.send_response(code)
@@ -79,6 +88,36 @@ class Handler(BaseHTTPRequestHandler):
         self.send_header("content-length", str(len(body)))
         self.end_headers()
         self.wfile.write(body)
+
+    def _serve_file(self, rel_path: str) -> None:
+        """Serve a static file from the web/ directory."""
+        web_dir = os.path.join(os.path.dirname(__file__), "..", "..", "web")
+        web_dir = os.path.normpath(os.path.abspath(web_dir))
+        # Default to index.html for / and /dashboard
+        if rel_path in ("", "/"):
+            rel_path = "index.html"
+        elif rel_path == "/dashboard":
+            rel_path = "dashboard.html"
+        elif rel_path.startswith("/"):
+            rel_path = rel_path.lstrip("/")
+        # Prevent directory traversal
+        full = os.path.normpath(os.path.join(web_dir, rel_path))
+        if not full.startswith(web_dir):
+            self.send_response(403)
+            self.end_headers()
+            return
+        if not os.path.isfile(full):
+            self.send_response(404)
+            self.end_headers()
+            return
+        ext = os.path.splitext(full)[1]
+        mime = self.MIME_TYPES.get(ext, "application/octet-stream")
+        self.send_response(200)
+        self.send_header("content-type", mime)
+        self.send_header("content-length", str(os.path.getsize(full)))
+        self.end_headers()
+        with open(full, "rb") as f:
+            self.wfile.write(f.read())
 
     def do_GET(self):  # noqa: N802
         url = urlparse(self.path)
@@ -116,8 +155,15 @@ class Handler(BaseHTTPRequestHandler):
                 "total_commands": total,
                 "lancedb_path": LANCEDB_PATH,
             })
+        elif url.path == "/commands":
+            try:
+                chat_id = _chat_id_from({}, qs)
+                cmds = list(list_commands(chat_id=chat_id))
+                self._send(200, {"commands": cmds, "count": len(cmds), "chat_id": chat_id})
+            except Exception as e:
+                self._send(500, {"error": f"failed to list commands: {e}"})
         else:
-            self._send(404, {"error": "not found"})
+            self._serve_file(url.path)
 
     def do_POST(self):  # noqa: N802
         try:

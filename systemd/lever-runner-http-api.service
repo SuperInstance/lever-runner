@@ -1,0 +1,29 @@
+[Unit]
+Description=Lever-Runner HTTP API
+After=network-online.target
+Wants=network-online.target
+
+[Service]
+Type=simple
+WorkingDirectory=/home/ubuntu/lever-runner
+EnvironmentFile=/home/ubuntu/lever-runner/.env
+ExecStart=/home/ubuntu/lever-runner/.venv/bin/lever-runner-http
+Restart=on-failure
+RestartSec=5
+User=ubuntu
+Group=ubuntu
+
+MemoryMax=512M
+MemoryHigh=384M
+LimitNOFILE=16384
+NoNewPrivileges=true
+ProtectSystem=strict
+ProtectHome=read-only
+PrivateTmp=true
+ReadWritePaths=/home/ubuntu/lever-runner/data /home/ubuntu/lever-runner/logs
+StandardOutput=journal
+StandardError=journal
+SyslogIdentifier=lever-runner-http
+
+[Install]
+WantedBy=multi-user.target
