@@ -1,9 +1,10 @@
 """
-intent_extractor.py — turn a user request into a short intent phrase.
+intent_extractor.py — turn a user request into a short intent phrase + args.
 
 The LLM is asked to do one thing and one thing only: compress a sentence
-into a 3-8 word phrase. No tool schemas, no chain-of-thought, no examples
-beyond what fits in ~60 input tokens.
+into a 3-8 word phrase and optionally extract key=value arguments. No tool
+schemas, no chain-of-thought, no examples beyond what fits in ~80 input
+tokens.
 
 Backends:
     - "minimax"   : Anthropic-compatible HTTP API (default; hosted MiniMax-M3)
@@ -68,14 +69,6 @@ BACKEND_DEFAULTS: dict[str, dict[str, str]] = {
     },
     "deepinfra": {
         "base_url": "https://api.deepinfra.com/v1/openai",
-        # Default model: Llama-3.1-8B-Instruct. The Qwen3.5-4B
-        # model on DeepInfra is a "reasoning" model that puts its
-        # output in `reasoning_content` and leaves `content=""`,
-        # so it can't be used as a phrase compressor. Llama 3.1 8B
-        # is a clean instruction-follower at $0.02/M input,
-        # $0.03/M output, with 128K context. Override via LLM_MODEL
-        # for Qwen3-32B or Llama-4-Scout if quality is ever a
-        # problem.
         "model": "meta-llama/Meta-Llama-3.1-8B-Instruct",
         "key_envs": "LLM_API_KEY,DEEPINFRA_API_KEY,DEEPINFRA_KEY",
     },
@@ -94,10 +87,20 @@ BACKEND_DEFAULTS: dict[str, dict[str, str]] = {
 SYSTEM_PROMPT = (
     "You compress a user request into a short verb-noun phrase of 3-8 words. "
     "Output ONLY the phrase, lowercase, no punctuation, no quotes, no prefix. "
+    "If the request names a specific thing (container, service, port, file, etc.), "
+    "replace it with the appropriate generic word in the phrase. "
     "Examples:\n"
     "  'can you check how much disk I have left?' -> show disk usage\n"
-    "  'restart nginx' -> restart nginx\n"
-    "  'what's eating my CPU?' -> show top cpu processes\n"
+    "  'restart nginx' -> restart service\n"
+    "  'show logs for nginx' -> show logs for container\n"
+    "  'check port 8080' -> check port\n"
+    "\nOn the next line, output extracted arguments as key=value pairs, "
+    "one per line: arg_name=value. Only extract arguments that "
+    "correspond to generic words you used. If no arguments, output nothing.\n"
+    "Examples:\n"
+    "  'show logs for nginx' -> show logs for container\n"
+    "                          container=nginx\n"
+    "  'check disk usage' -> show disk usage\n"
 )
 
 INTENT_RE = re.compile(r"[a-z][a-z0-9 -]{2,60}")
@@ -109,6 +112,21 @@ class Extraction:
     tokens_in: int  # approx input tokens sent to the LLM
     tokens_out: int  # approx output tokens returned
     backend: str
+    args: dict | None = None  # extracted arguments for parameterized commands
+
+
+def _parse_args(raw: str) -> dict[str, str]:
+    """Parse key=value pairs from LLM output. Returns an empty dict if none found."""
+    args: dict[str, str] = {}
+    for line in raw.splitlines():
+        line = line.strip()
+        if "=" in line:
+            key, _, val = line.partition("=")
+            key = key.strip()
+            val = val.strip()
+            if key and val and key.isidentifier():
+                args[key] = val
+    return args
 
 
 # ---------------------------------------------------------------------------
@@ -142,15 +160,13 @@ def _post_minimax_or_openai(
         }
         body = {
             "model": model,
-            "max_tokens": 32,
+            "max_tokens": 48,
             "system": system,
             "messages": [{"role": "user", "content": user}],
         }
         r = requests.post(url, headers=headers, json=body, timeout=timeout_sec)
         r.raise_for_status()
         data = r.json()
-        # Anthropic: content blocks may include thinking tokens.
-        # Iterate to find the text block; skip thinking/signature blocks.
         content = data.get("content", [])
         if isinstance(content, list):
             for block in content:
@@ -163,7 +179,6 @@ def _post_minimax_or_openai(
         if isinstance(content, str):
             return content.strip()
         if content:
-            # Last resort: stringify the first block.
             block = content[0]
             if isinstance(block, dict):
                 return str(block.get("text", block.get("content", str(block)))).strip()
@@ -179,7 +194,7 @@ def _post_minimax_or_openai(
     }
     body = {
         "model": model,
-        "max_tokens": 32,
+        "max_tokens": 48,
         "messages": [
             {"role": "system", "content": system},
             {"role": "user", "content": user},
@@ -213,16 +228,26 @@ def _post_ollama(
     return r.json()["message"]["content"].strip()
 
 
-def _normalize(raw: str) -> str:
-    """Tighten the LLM output to a clean phrase."""
+def _normalize(raw: str) -> tuple[str, dict[str, str]]:
+    """Tighten the LLM output to a clean phrase and extract key=value args.
+
+    The LLM outputs the intent phrase on the first line, optionally
+    followed by key=value argument lines.
+
+    Returns (phrase, args).
+    """
     raw = raw.strip().strip("`'\"")
-    raw = raw.splitlines()[0]  # first line only
-    raw = raw.lower()
-    raw = re.sub(r"[^a-z0-9 -]", "", raw)  # strip punctuation
-    raw = re.sub(r"\s+", " ", raw).strip()
-    # Truncate to the first ~8 words.
-    words = raw.split()
-    return " ".join(words[:8]) if words else ""
+    lines = raw.splitlines()
+    # First line is the phrase
+    phrase_line = lines[0] if lines else ""
+    phrase_line = phrase_line.lower()
+    phrase_line = re.sub(r"[^a-z0-9 -]", "", phrase_line)
+    phrase_line = re.sub(r"\s+", " ", phrase_line).strip()
+    words = phrase_line.split()
+    phrase = " ".join(words[:8]) if words else ""
+    # Remaining lines may contain key=value args
+    args = _parse_args("\n".join(lines[1:])) if len(lines) > 1 else {}
+    return phrase, args
 
 
 # ---------------------------------------------------------------------------
@@ -230,31 +255,8 @@ def _normalize(raw: str) -> str:
 # ---------------------------------------------------------------------------
 
 
-def extract(
-    user_request: str,
-    *,
-    backend: str | None = None,
-    api_key: str | None = None,
-    base_url: str | None = None,
-    model: str | None = None,
-) -> Extraction:
-    """Return a clean intent phrase plus token accounting."""
-    backend = (backend or os.getenv("LLM_BACKEND", "minimax")).lower()
-    user_request = (user_request or "").strip()
-    if not user_request:
-        return Extraction(phrase="", tokens_in=0, tokens_out=0, backend=backend)
-
-    if backend == "passthrough":
-        phrase = _normalize(user_request)
-        return Extraction(phrase=phrase, tokens_in=0, tokens_out=0, backend=backend)
-
 def _resolve_api_key(backend: str, explicit: str | None) -> tuple[str, list[str]]:
-    """Return (api_key, key_env_list) for the given backend.
-
-    Priority: explicit kwarg > LLM_API_KEY > backend's key_envs (first
-    non-empty wins, not concatenated). Returns the list of env names
-    checked for nicer error messages.
-    """
+    """Return (api_key, key_env_list) for the given backend."""
     defaults = BACKEND_DEFAULTS.get(backend, BACKEND_DEFAULTS["minimax"])
     key_env_list = [e.strip() for e in defaults["key_envs"].split(",") if e.strip()]
     if explicit:
@@ -286,13 +288,7 @@ def _try_one_backend(
     model: str | None = None,
 ) -> _CallResult:
     """Make one LLM call to one backend. Returns the raw response text
-    plus estimated input tokens. Raises on any HTTP / connection error;
-    the caller is responsible for deciding what counts as retryable.
-
-    Note: api_key, base_url, model kwargs override the per-backend
-    defaults from BACKEND_DEFAULTS. This is useful for tests and for
-    the fallback chain (which re-derives defaults from each backend's
-    own metadata, not from the primary's env).
+    plus estimated input tokens. Raises on any HTTP / connection error.
     """
     backend = backend.lower()
     defaults = BACKEND_DEFAULTS.get(backend)
@@ -307,8 +303,6 @@ def _try_one_backend(
         m = model or os.getenv("OLLAMA_MODEL", defaults["model"])
         raw = _post_ollama(host, m, system, user)
     else:
-        # minimax / openai / deepinfra all use the same OpenAI or
-        # Anthropic-shaped HTTP path.
         key, key_envs = _resolve_api_key(backend, api_key)
         if not key:
             raise RuntimeError(
@@ -316,19 +310,6 @@ def _try_one_backend(
                 f"LLM_API_KEY, {', '.join(key_envs)} in the environment, "
                 f"or use LLM_BACKEND=passthrough"
             )
-        # URL/model resolution. The `base_url` and `model` kwargs
-        # are what the caller (extract's fallback chain) wants to
-        # apply *to this specific attempt*. If they're None, we
-        # use the per-backend default.
-        #
-        # We deliberately do NOT honor the global LLM_BASE_URL /
-        # LLM_MODEL env vars here. Those are set for the primary
-        # backend and would otherwise leak into fallback attempts
-        # (e.g. primary's minimax URL being sent to deepinfra). If
-        # the operator wants to point a specific backend elsewhere,
-        # they should set per-backend env vars
-        # (LLM_<BACKEND>_BASE_URL, LLM_<BACKEND>_MODEL) or pass the
-        # kwargs explicitly.
         per_backend_url_env = f"LLM_{backend.upper()}_BASE_URL"
         per_backend_model_env = f"LLM_{backend.upper()}_MODEL"
         if base_url is None:
@@ -341,21 +322,18 @@ def _try_one_backend(
 
 def _passthrough_fallback(user_request: str) -> Extraction:
     """Final fallback: the user's raw request is the intent phrase."""
+    phrase, args = _normalize(user_request)
     return Extraction(
-        phrase=_normalize(user_request),
+        phrase=phrase,
         tokens_in=0,
         tokens_out=0,
         backend="passthrough-fallback",
+        args=args if args else None,
     )
 
 
 def _resolve_fallback_chain(primary: str) -> list[str]:
-    """Read LLM_FALLBACKS and return a list of fallback backends.
-
-    'passthrough' is always appended as the last resort. The primary
-    is excluded from the list (it's tried first anyway). Unknown
-    backends are filtered out and logged.
-    """
+    """Read LLM_FALLBACKS and return a list of fallback backends."""
     raw = os.getenv("LLM_FALLBACKS", DEFAULT_FALLBACKS)
     chain = [b.strip().lower() for b in raw.split(",") if b.strip()]
     chain = [b for b in chain if b != primary]
@@ -379,7 +357,7 @@ def extract(
     base_url: str | None = None,
     model: str | None = None,
 ) -> Extraction:
-    """Return a clean intent phrase plus token accounting.
+    """Return a clean intent phrase, extracted args, plus token accounting.
 
     Calls the primary LLM_BACKEND first; on a retryable error (timeout,
     connection refused, 429, 5xx) it tries each entry in LLM_FALLBACKS
@@ -393,8 +371,11 @@ def extract(
         return Extraction(phrase="", tokens_in=0, tokens_out=0, backend=backend)
 
     if backend == "passthrough":
-        phrase = _normalize(user_request)
-        return Extraction(phrase=phrase, tokens_in=0, tokens_out=0, backend=backend)
+        phrase, args = _normalize(user_request)
+        return Extraction(
+            phrase=phrase, tokens_in=0, tokens_out=0,
+            backend=backend, args=args if args else None,
+        )
 
     system = SYSTEM_PROMPT
     user = user_request
@@ -404,11 +385,6 @@ def extract(
     full_chain = [backend] + fallback_chain
 
     last_error: Exception | None = None
-    # The primary's base_url/model kwargs come from the caller. For
-    # attempt 0 we also honor LLM_BASE_URL / LLM_MODEL as a
-    # convenience (the operator usually sets them globally). For
-    # fallbacks (attempt > 0) we deliberately let `_try_one_backend`
-    # use the per-backend defaults so the primary's URL doesn't leak.
     if base_url is None:
         base_url = os.getenv("LLM_BASE_URL")
     if model is None:
@@ -426,13 +402,14 @@ def extract(
             )
             if attempt > 0:
                 log.info("LLM: primary %r failed; succeeded on fallback %r", backend, current_backend)
-            phrase = _normalize(result.raw)
+            phrase, args = _normalize(result.raw)
             tokens_out = _approx_tokens(result.raw) + 2
             return Extraction(
                 phrase=phrase,
                 tokens_in=result.tokens_in,
                 tokens_out=tokens_out,
                 backend=result.backend_used,
+                args=args if args else None,
             )
         except (requests.exceptions.Timeout, requests.exceptions.ConnectionError) as e:
             last_error = e
@@ -444,24 +421,15 @@ def extract(
             if _is_retryable_http_error(e):
                 log.warning("LLM: backend %r attempt %d failed: HTTP %s", current_backend, attempt + 1, code)
                 continue
-            # 401 means this provider's key is bad/expired. In a
-            # chain context, that's a reason to skip to the next
-            # backend (the next provider may have a valid key).
-            # 4xx other than 401 (400, 404, etc.) are usually bugs
-            # in the request itself (bad model name, malformed body)
-            # and would fail the same way on any provider, so we
-            # propagate them up so the operator can diagnose.
             if code == 401 and len(full_chain) > attempt + 1:
                 log.warning("LLM: backend %r returned HTTP 401; skipping to next backend", current_backend)
                 continue
             log.error("LLM: backend %r returned non-retryable HTTP %s; not falling back", current_backend, code)
             raise
         except RuntimeError as e:
-            # Missing API key for this backend. Skip to next.
             last_error = e
             log.warning("LLM: backend %r not configured: %s", current_backend, e)
             continue
 
-    # If we get here, every attempt failed in a way the chain handled.
     log.error("LLM: all %d attempts failed; last error: %r", len(full_chain), last_error)
     return _passthrough_fallback(user_request)

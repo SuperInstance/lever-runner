@@ -14,7 +14,7 @@ from dataclasses import dataclass
 from . import token_logger
 from .executor import RunResult, run_command
 from .intent_extractor import extract as extract_intent
-from .store import CommandStore, Match
+from .store import CommandStore, Match, has_placeholders, substitute_args
 
 
 @dataclass
@@ -28,6 +28,7 @@ class DoResult:
     tokens_out: int
     error: str | None = None
     no_match: bool = False
+    args: dict | None = None  # extracted arguments for parameterized commands
 
     @property
     def total_tokens(self) -> int:
@@ -43,7 +44,7 @@ def do(
     min_trust: float = 40.0,
     auto_run: bool = True,
 ) -> DoResult:
-    """End-to-end: extract intent → embed → find best → optionally run.
+    """End-to-end: extract intent + args → embed → find best → substitute → optionally run.
 
     chat_id scopes the store to a per-chat table. Defaults to "default"
     for CLI usage. The Telegram bot passes str(update.effective_chat.id).
@@ -83,18 +84,11 @@ def do(
         )
 
     # Pick the match with the best similarity (lowest L2 distance) that
-    # is also at or above the trust floor. Trust is a *gate*, not a
-    # tiebreaker for similar matches: once two candidates are both above
-    # the floor, the one whose embedding is closest to the user's
-    # intent wins. Falls back to top-1 by similarity if all matches are
-    # below the trust floor.
+    # is also at or above the trust floor.
     eligible = [m for m in matches if m.trust_score >= min_trust] or matches[:1]
     chosen = min(eligible, key=lambda m: m.score)
 
-    # Confidence check: if the best match's cosine similarity is below the
-    # floor, treat it as no-match and surface the candidates for /teach.
-    # (Falls back to the global env var, then 0.55 as a sane default for
-    # MiniLM-L6-v2 with normalized embeddings.)
+    # Confidence check
     import os as _os
 
     sim_floor = float(_os.getenv("MATCH_SIMILARITY_FLOOR", "0.55"))
@@ -115,6 +109,48 @@ def do(
             ),
         )
 
+    # Determine the command to execute
+    command = chosen.command
+    extracted_args = extraction.args
+
+    # If the matched command is a template (has {{param}} placeholders),
+    # substitute the extracted args
+    if has_placeholders(command):
+        if extracted_args:
+            try:
+                command = substitute_args(command, extracted_args)
+            except ValueError as e:
+                return DoResult(
+                    ok=False,
+                    user_request=user_request,
+                    intent=extraction.phrase,
+                    match=chosen,
+                    run=None,
+                    tokens_in=extraction.tokens_in,
+                    tokens_out=extraction.tokens_out,
+                    error=f"argument substitution failed: {e}",
+                    args=extracted_args,
+                )
+        else:
+            # Template command but no args extracted — can't execute
+            from .store import get_placeholders
+            placeholders = get_placeholders(command)
+            return DoResult(
+                ok=False,
+                user_request=user_request,
+                intent=extraction.phrase,
+                match=chosen,
+                run=None,
+                tokens_in=extraction.tokens_in,
+                tokens_out=extraction.tokens_out,
+                error=(
+                    f"this command requires arguments: "
+                    f"{', '.join(placeholders)}. "
+                    f"Try e.g. '{user_request} with <value>'"
+                ),
+                args=None,
+            )
+
     if not auto_run:
         return DoResult(
             ok=True,
@@ -124,9 +160,10 @@ def do(
             run=None,
             tokens_in=extraction.tokens_in,
             tokens_out=extraction.tokens_out,
+            args=extracted_args,
         )
 
-    result = run_command(chosen.command)
+    result = run_command(command)
     store.update_trust(chosen.id, success=result.ok)
     return DoResult(
         ok=result.ok,
@@ -136,6 +173,7 @@ def do(
         run=result,
         tokens_in=extraction.tokens_in,
         tokens_out=extraction.tokens_out,
+        args=extracted_args,
     )
 
 
@@ -150,7 +188,12 @@ def teach(
     """Insert a new command. ``trust`` overrides the default new-command
     trust (TRUST_NEW_COMMAND, normally 50). Useful for "I know this is
     a good command, start it higher" or "this came from a less-trusted
-    source, start it lower"."""
+    source, start it lower".
+
+    Supports parameterized commands with {{param}} placeholders in both
+    the intent phrase and the command, e.g.:
+        teach("show logs for {{container}}", "docker logs --tail 100 {{container}}")
+    """
     store = store or CommandStore(chat_id=chat_id)
     return store.teach(intent_phrase, command, trust=trust)
 

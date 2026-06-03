@@ -239,8 +239,16 @@ class CommandStore:
 
     def find_best(self, intent_phrase: str, top_k: int = 3) -> list[Match]:
         """Return top-k matches sorted by ascending L2 distance (best first),
-        dropping the schema seed."""
-        vec = self._embed(intent_phrase)
+        dropping the schema seed.
+
+        For template commands with {{param}} placeholders, the intent_phrase
+        column stores the template (e.g. "show logs for {{container}}"), but
+        the embedding is computed on the stripped version ("show logs for")
+        so the search works correctly regardless of the actual argument value.
+        """
+        # Strip any placeholders from the query phrase for embedding
+        query_phrase = strip_placeholders(intent_phrase) or intent_phrase
+        vec = self._embed(query_phrase)
         raw = self.table.search(vec).limit(top_k + 1).to_list()
         out: list[Match] = []
         for r in raw:
@@ -266,7 +274,14 @@ class CommandStore:
         return out
 
     def teach(self, intent_phrase: str, command: str, trust: float | None = None) -> str:
-        """Insert a new command. Returns its id."""
+        """Insert a new command. Returns its id.
+
+        For parameterized commands (containing {{param}} placeholders),
+        the intent_phrase is stored as-is but the embedding is computed
+        from the stripped version so matching works correctly.
+        """
+        # For template commands, embed the stripped phrase so matching works
+        embed_phrase = strip_placeholders(intent_phrase) or intent_phrase
         row = {
             "id": str(uuid.uuid4()),
             "intent_phrase": intent_phrase.strip(),
@@ -274,7 +289,7 @@ class CommandStore:
             "trust_score": float(trust if trust is not None else TRUST_NEW),
             "success_count": 0,
             "failure_count": 0,
-            "embedding": self._embed(intent_phrase),
+            "embedding": self._embed(embed_phrase),
         }
         self.table.add([row])
         return row["id"]
@@ -312,3 +327,69 @@ class CommandStore:
     def delete_command(self, row_id: str) -> None:
         """Permanently remove a command from the table by id."""
         self.table.delete(f"id = '{row_id}'")
+
+
+# ---------------------------------------------------------------------------
+# Parameterized command support ({{param}} placeholders)
+# ---------------------------------------------------------------------------
+
+# Matches {{param_name}} in intent phrases and commands
+_PLACEHOLDER_RE = re.compile(r"\{\{(\w+)\}\}")
+
+# Only allow safe characters in extracted args to prevent injection
+_SAFE_ARG_RE = re.compile(r"^[a-zA-Z0-9._-]+$")
+
+
+def has_placeholders(text: str) -> bool:
+    """True if the text contains {{param}} placeholders."""
+    return bool(_PLACEHOLDER_RE.search(text))
+
+
+def get_placeholders(text: str) -> list[str]:
+    """Return a list of unique placeholder names in order of appearance."""
+    return list(dict.fromkeys(_PLACEHOLDER_RE.findall(text)))
+
+
+def strip_placeholders(text: str) -> str:
+    """Remove {{param}} placeholders for embedding/matching purposes.
+
+    This produces a clean phrase suitable for embedding without the
+    template syntax, e.g. "show logs for {{container}}" → "show logs for".
+    """
+    return _PLACEHOLDER_RE.sub("", text).strip()
+
+
+def validate_arg(name: str, value: str) -> str:
+    """Validate a single argument value. Only allows alphanumeric, dash,
+    underscore, and dot. Returns the value if valid, raises ValueError otherwise.
+
+    This prevents shell injection through parameterized commands.
+    """
+    if not value:
+        raise ValueError(f"argument {name!r} must not be empty")
+    if not _SAFE_ARG_RE.match(value):
+        raise ValueError(
+            f"argument {name!r} contains disallowed characters: {value!r}. "
+            f"Only alphanumeric, dash, underscore, and dot are allowed."
+        )
+    return value
+
+
+def substitute_args(template: str, args: dict[str, str]) -> str:
+    """Substitute {{param}} placeholders in a template with validated args.
+
+    All placeholders in the template must have a corresponding arg value.
+    All arg values are validated against the safe-character set.
+
+    Returns the substituted string.
+    """
+    placeholders = get_placeholders(template)
+    missing = [p for p in placeholders if p not in args]
+    if missing:
+        raise ValueError(f"missing arguments: {', '.join(missing)}")
+    for name, value in args.items():
+        validate_arg(name, value)
+    result = template
+    for name, value in args.items():
+        result = result.replace("{{" + name + "}}", value)
+    return result
