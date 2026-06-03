@@ -11,6 +11,29 @@ An adaptive trust-scoring, token-lean AI command executor. You send natural lang
 Lever-Runner returns a pre-approved shell command and runs it. The local LLM
 only ever sees a short *intent phrase* — never tool schemas, never raw shell.
 
+## Try it in 5 minutes (zero API keys needed)
+
+```bash
+git clone https://github.com/SuperInstance/lever-runner && cd lever-runner
+pip install -e .
+export LLM_BACKEND=passthrough    # no LLM needed, $0/month
+python -m lever_runner "check disk usage"
+# → runs: df -h
+```
+
+That's it. The `passthrough` backend uses your exact words as the intent — no API keys, no Ollama, no cloud. 67 built-in commands ready to go.
+
+To teach a new command:
+```bash
+python -m lever_runner teach "show my ip" --command "curl ifconfig.me"
+python -m lever_runner "what's my ip"
+# → runs: curl ifconfig.me
+```
+
+Done. You just taught it something. It'll remember forever.
+
+---
+
 ```
 You:   "check disk usage on the server"
 LLM:   intent = "show disk usage"
@@ -205,7 +228,10 @@ MIT. See [LICENSE](LICENSE).
 
 ## Status
 
-**v0.3.1** — more bot commands, full table introspection.
+See [CHANGELOG.md](CHANGELOG.md) for release history.
+
+<!-- original changelog moved to CHANGELOG.md -->
+<!-- 
 
 - **`/commands [N] [--page=K]`** — list the commands in the current
   chat's table, sorted by trust desc. Default 20 per page, max 100.
@@ -284,5 +310,7 @@ MIT. See [LICENSE](LICENSE).
   seed pack, hourly self-improvement loop (promote + optional rewrite),
   token benchmark, installable package, 6 console scripts, pre-commit
   + CI.
+
+-->
 
 See `TODO.md` for the v0.3 wish list.
