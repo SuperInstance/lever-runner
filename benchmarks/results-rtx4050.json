@@ -1,0 +1,21 @@
+{
+  "passthrough_match_p50_ms": 27.045237002312206,
+  "passthrough_match_p99_ms": 10439.142711999011,
+  "passthrough_match_avg_ms": 133.6078175995499,
+  "full_orchestrator_p50_ms": 4168.069779996586,
+  "full_orchestrator_p99_ms": 4984.422479006753,
+  "vector_search_p50_ms": 18.198944999312516,
+  "vector_search_p99_ms": 28.630806002183817,
+  "template_match_p50_us": 1.6920021153055131,
+  "template_match_avg_us": 1.9258404790889472,
+  "teach_p50_ms": 13.276327001221944,
+  "teach_throughput_per_sec": 73.55252997657335,
+  "system": {
+    "cpu": "x86_64",
+    "ram_gb": "32",
+    "gpu": "NVIDIA GeForce RTX 4050 Laptop GPU",
+    "gpu_vram_gb": 6.0,
+    "python": "3.10.12",
+    "pytorch": "2.4.1+cu121"
+  }
+}

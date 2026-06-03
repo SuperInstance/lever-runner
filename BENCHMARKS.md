@@ -101,5 +101,28 @@ target              : < 200
 
 ---
 
+## Real Hardware Benchmarks
+
+Detailed latency and throughput benchmarks measured on an **NVIDIA RTX 4050 Laptop GPU**:
+
+- **Full results:** [`benchmarks/BENCHMARK-RESULTS.md`](benchmarks/BENCHMARK-RESULTS.md)
+- **Raw data:** [`benchmarks/results-rtx4050.json`](benchmarks/results-rtx4050.json)
+- **Benchmark script:** [`benchmarks/run_gpu_benchmarks.py`](benchmarks/run_gpu_benchmarks.py)
+
+### Quick summary (RTX 4050)
+
+| Operation | p50 latency |
+|---|---|
+| Vector search (embed + query) | 7.6 ms |
+| Full orchestrator (end-to-end) | 7.6 ms |
+| Teach (new command) | 8.1 ms |
+| Template matching | 1.7 µs |
+| GPU single-text embedding | 2.6 ms |
+| CPU single-text embedding | 6.7 ms |
+
+GPU acceleration gives **2.6× faster** single-text embedding vs CPU for this workload.
+
+---
+
 _These benchmarks were measured on commit `main`. Re-run `python -m
 lever_runner.benchmark` on your own hardware for authoritative numbers._
