@@ -230,6 +230,28 @@ a phrase.
   or environment variables. The `.env` file is loaded only in the executor
   layer.
 
+## pincherOS Integration
+
+Export your taught commands as pincherOS `.nail` files for reflex caching and device migration:
+
+```bash
+# Export all commands
+python -m lever_runner export-nail --output my-reflexes.nail
+
+# Export only a specific skill pack
+python -m lever_runner export-nail --pack devops --output devops.nail
+
+# Export from a specific chat
+python -m lever_runner --chat-id 12345 export-nail --output chat.nail
+
+# Import on another device
+pincher import my-reflexes.nail
+```
+
+The `.nail` file is a tar.zst archive containing a SQLite `reflexes.db`, `manifest.json`, `identity.json`, and `config.toml` — fully compatible with pincherOS's migration format. Embedding vectors are included by default for instant similarity search on import.
+
+Requires the `zstandard` package: `pip install zstandard`
+
 ## Related Projects
 
 **[pincherOS](https://github.com/SuperInstance/pincherOS)** — A Rust-based agent runtime with reflex caching, migration, and resource control. Where lever-runner is a lightweight command runner, pincherOS is a full agent state machine with .nail file migration between devices. Same thesis (LLM should do less), different scope.

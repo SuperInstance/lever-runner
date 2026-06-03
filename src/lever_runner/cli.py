@@ -63,6 +63,37 @@ def main(argv: list[str]) -> int:
         print(f"chat: {s['chat_id']}  commands: {s['command_count']}")
         return 0
 
+    if sub == "export-nail":
+        from .export_nail import main as export_main
+        export_argv = []
+        # Forward --chat-id
+        if chat_id != "default":
+            export_argv.extend(["--chat-id", chat_id])
+        # Parse remaining args for --output, --pack, etc.
+        i = 1
+        while i < len(args):
+            a = args[i]
+            if a in ("--output", "-o") and i + 1 < len(args):
+                export_argv.extend(["--output", args[i + 1]])
+                i += 2
+            elif a.startswith("--output="):
+                export_argv.extend(["--output", a.split("=", 1)[1]])
+                i += 1
+            else:
+                export_argv.append(a)
+                i += 1
+        # Ensure --output is present
+        if "--output" not in export_argv and "-o" not in export_argv:
+            print("usage: python -m lever_runner export-nail --output <file.nail> [--pack <name>]")
+            return 2
+        import sys as _sys
+        old_argv = _sys.argv
+        _sys.argv = ["export-nail"] + export_argv
+        try:
+            return export_main()
+        finally:
+            _sys.argv = old_argv
+
     request = " ".join(args)
     r = do(request, source="cli", chat_id=chat_id)
     print(f"intent:   {r.intent!r}")
