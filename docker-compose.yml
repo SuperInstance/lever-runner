@@ -1,0 +1,36 @@
+version: "3.8"
+
+services:
+  lever-runner:
+    build: .
+    ports:
+      - "8765:8765"
+    environment:
+      - LLM_BACKEND=ollama
+      - OLLAMA_BASE_URL=http://ollama:11434
+      - LANCEDB_PATH=/data/lancedb
+      - SANDBOX_ROOT=/tmp/lever-runner
+    volumes:
+      - lever-data:/data
+    depends_on:
+      ollama:
+        condition: service_healthy
+    restart: unless-stopped
+
+  ollama:
+    image: ollama/ollama:latest
+    ports:
+      - "11434:11434"
+    volumes:
+      - ollama-data:/root/.ollama
+    healthcheck:
+      test: ["CMD", "curl", "-f", "http://localhost:11434/api/tags"]
+      interval: 30s
+      timeout: 10s
+      retries: 5
+      start_period: 30s
+    restart: unless-stopped
+
+volumes:
+  lever-data:
+  ollama-data:

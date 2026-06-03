@@ -1,0 +1,10 @@
+{"intent":"scan for open ports","command":"nmap -sT -p- localhost","category":"network-scan"}
+{"intent":"show all listening ports","command":"ss -tunlp","category":"network-scan"}
+{"intent":"show firewall status","command":"ufw status verbose","category":"firewall"}
+{"intent":"list firewall rules","command":"iptables -L -n -v","category":"firewall"}
+{"intent":"show fail2ban status","command":"fail2ban-client status","category":"intrusion"}
+{"intent":"show recent auth failures","command":"journalctl -u sshd --no-pager -n 50 | grep Failed","category":"intrusion"}
+{"intent":"check for world-writable files","command":"find /etc -perm -o+w -type f 2>/dev/null","category":"file-perms"}
+{"intent":"show suid binaries","command":"find / -perm -4000 -type f 2>/dev/null","category":"file-perms"}
+{"intent":"show users with shell access","command":"grep -v '/nologin\\|/false' /etc/passwd","category":"users"}
+{"intent":"show last failed login attempts","command":"lastb | head -20","category":"intrusion"}

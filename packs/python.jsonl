@@ -1,0 +1,15 @@
+{"intent":"install python package","command":"pip install","category":"pip"}
+{"intent":"list installed packages","command":"pip list","category":"pip"}
+{"intent":"show outdated packages","command":"pip list --outdated","category":"pip"}
+{"intent":"freeze requirements","command":"pip freeze","category":"pip"}
+{"intent":"create virtual environment","command":"python -m venv .venv","category":"venv"}
+{"intent":"run pytest","command":"python -m pytest -v","category":"testing"}
+{"intent":"run pytest with coverage","command":"python -m pytest --cov -v","category":"testing"}
+{"intent":"format code with black","command":"black --check .","category":"formatting"}
+{"intent":"run mypy type checking","command":"mypy .","category":"typing"}
+{"intent":"run ruff linter","command":"ruff check .","category":"linting"}
+{"intent":"show python version","command":"python --version","category":"python"}
+{"intent":"run python script","command":"python","category":"python"}
+{"intent":"show package info","command":"pip show","category":"pip"}
+{"intent":"uninstall python package","command":"pip uninstall -y","category":"pip"}
+{"intent":"check import sorting","command":"isort --check-only .","category":"formatting"}

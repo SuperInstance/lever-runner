@@ -1,0 +1,25 @@
+{"intent":"show disk usage","command":"df -h","category":"disk"}
+{"intent":"show directory sizes","command":"du -sh *","category":"disk"}
+{"intent":"show inode usage","command":"df -i","category":"disk"}
+{"intent":"show memory usage","command":"free -h","category":"memory"}
+{"intent":"show top processes by cpu","command":"ps aux --sort=-%cpu | head -20","category":"processes"}
+{"intent":"show top processes by memory","command":"ps aux --sort=-%mem | head -20","category":"processes"}
+{"intent":"show all running processes","command":"ps aux","category":"processes"}
+{"intent":"show process tree","command":"ps auxf","category":"processes"}
+{"intent":"show system uptime","command":"uptime","category":"system"}
+{"intent":"show kernel version","command":"uname -a","category":"system"}
+{"intent":"show cpu info","command":"lscpu","category":"system"}
+{"intent":"show pci devices","command":"lspci","category":"system"}
+{"intent":"show usb devices","command":"lsusb","category":"system"}
+{"intent":"show network interfaces","command":"ip addr","category":"network"}
+{"intent":"show routing table","command":"ip route","category":"network"}
+{"intent":"show dns resolution","command":"nslookup","category":"network"}
+{"intent":"show open files for process","command":"lsof -p","category":"processes"}
+{"intent":"show system load summary","command":"w","category":"system"}
+{"intent":"show swap usage","command":"swapon --show","category":"memory"}
+{"intent":"show filesystem mount points","command":"mount | column -t","category":"disk"}
+{"intent":"show last logins","command":"last -10","category":"system"}
+{"intent":"show systemd boot log","command":"journalctl -b --no-pager -n 50","category":"system"}
+{"intent":"show cron jobs for current user","command":"crontab -l","category":"system"}
+{"intent":"show environment variables","command":"env | sort","category":"system"}
+{"intent":"show large files over 100MB","command":"find / -xdev -type f -size +100M 2>/dev/null | head -20","category":"disk"}

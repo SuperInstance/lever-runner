@@ -3,125 +3,211 @@
 <head>
   <meta charset="utf-8">
   <meta name="viewport" content="width=device-width, initial-scale=1">
-  <title>Lever-Runner — post-inference command execution</title>
-  <meta name="description" content="A small AI command executor. The LLM produces a short intent phrase, never a shell command. Shell commands come from a pre-approved table.">
+  <title>Lever-Runner Dashboard</title>
   <style>
-    :root {
-      --fg: #1a1a1a;
-      --muted: #666;
-      --accent: #2c5;
-      --bg: #fafafa;
-      --code-bg: #f0f0f0;
-      --max-w: 720px;
-    }
-    body {
-      font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", Helvetica, Arial, sans-serif;
-      color: var(--fg); background: var(--bg);
-      max-width: var(--max-w); margin: 2em auto; padding: 0 1em;
-      line-height: 1.6;
-    }
-    h1 { font-size: 1.8em; margin-bottom: 0.2em; }
-    h2 { font-size: 1.3em; margin-top: 2em; border-bottom: 1px solid #ddd; padding-bottom: 0.2em; }
-    .tagline { color: var(--muted); font-size: 1.05em; margin-top: 0; }
-    code { background: var(--code-bg); padding: 0.1em 0.3em; border-radius: 3px; font-size: 0.95em; }
-    pre { background: var(--code-bg); padding: 1em; border-radius: 4px; overflow-x: auto; }
-    pre code { background: none; padding: 0; }
-    a { color: var(--accent); text-decoration: none; }
-    a:hover { text-decoration: underline; }
-    .badges a { margin-right: 0.5em; }
-    .num { font-family: ui-monospace, "SF Mono", Menlo, monospace; }
-    .muted { color: var(--muted); }
-    table { border-collapse: collapse; width: 100%; }
-    th, td { text-align: left; padding: 0.4em 0.6em; border-bottom: 1px solid #e0e0e0; }
-    th { background: var(--code-bg); }
-    footer { margin-top: 3em; padding-top: 1em; border-top: 1px solid #ddd; color: var(--muted); font-size: 0.9em; }
+    :root { --bg: #0f1117; --surface: #1a1d27; --border: #2a2d3a; --fg: #e4e4e7;
+            --muted: #888; --accent: #22c55e; --danger: #ef4444; --warn: #f59e0b; }
+    * { box-sizing: border-box; margin: 0; padding: 0; }
+    body { font-family: -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+           background: var(--bg); color: var(--fg); min-height: 100vh; }
+    .app { max-width: 900px; margin: 0 auto; padding: 1.5rem; }
+
+    header { display: flex; align-items: center; justify-content: space-between;
+             margin-bottom: 1.5rem; }
+    h1 { font-size: 1.4rem; font-weight: 600; }
+    .status-dot { width: 8px; height: 8px; border-radius: 50%; display: inline-block;
+                  margin-right: 6px; }
+    .status-dot.ok { background: var(--accent); }
+    .status-dot.err { background: var(--danger); }
+
+    /* Command input */
+    .cmd-bar { display: flex; gap: .5rem; margin-bottom: 1rem; }
+    .cmd-bar input { flex: 1; padding: .65rem .85rem; border-radius: 6px;
+                     border: 1px solid var(--border); background: var(--surface);
+                     color: var(--fg); font-size: .95rem; outline: none; }
+    .cmd-bar input:focus { border-color: var(--accent); }
+    .cmd-bar button { padding: .65rem 1.2rem; border-radius: 6px; border: none;
+                      background: var(--accent); color: #000; font-weight: 600;
+                      cursor: pointer; font-size: .95rem; }
+    .cmd-bar button:disabled { opacity: .5; cursor: not-allowed; }
+
+    /* Teach bar */
+    .teach-bar { display: flex; gap: .5rem; margin-bottom: 1.5rem; flex-wrap: wrap; }
+    .teach-bar input { flex: 1; min-width: 140px; padding: .55rem .75rem;
+                       border-radius: 6px; border: 1px solid var(--border);
+                       background: var(--surface); color: var(--fg); font-size: .9rem; }
+    .teach-bar button { padding: .55rem 1rem; border-radius: 6px; border: none;
+                        background: #3b82f6; color: #fff; font-weight: 600; cursor: pointer; }
+
+    /* Result */
+    .result { background: var(--surface); border: 1px solid var(--border);
+              border-radius: 8px; padding: 1rem; margin-bottom: 1.5rem; display: none; }
+    .result.show { display: block; }
+    .result-header { display: flex; justify-content: space-between; margin-bottom: .5rem; }
+    .result-header .intent { color: var(--muted); font-size: .85rem; }
+    .result-header .cmd { font-family: monospace; color: var(--accent); }
+    .result pre { background: #000; padding: .75rem; border-radius: 4px;
+                  overflow-x: auto; font-size: .85rem; line-height: 1.5;
+                  max-height: 300px; overflow-y: auto; }
+    .result .meta { display: flex; gap: 1rem; margin-top: .5rem; font-size: .8rem;
+                    color: var(--muted); }
+
+    /* Commands table */
+    .cmd-list { margin-top: 1rem; }
+    .cmd-list h2 { font-size: 1.1rem; margin-bottom: .75rem; }
+    table { width: 100%; border-collapse: collapse; font-size: .85rem; }
+    th, td { text-align: left; padding: .5rem .6rem; border-bottom: 1px solid var(--border); }
+    th { color: var(--muted); font-weight: 500; }
+    .trust-badge { padding: 2px 8px; border-radius: 10px; font-weight: 600;
+                   font-size: .8rem; }
+    .trust-high { background: #16a34a22; color: var(--accent); }
+    .trust-mid { background: #f59e0b22; color: var(--warn); }
+    .trust-low { background: #ef444422; color: var(--danger); }
+
+    .loading { color: var(--muted); font-size: .9rem; }
   </style>
 </head>
 <body>
+<div class="app">
+  <header>
+    <h1>⚡ Lever-Runner</h1>
+    <span id="health"><span class="status-dot err"></span>disconnected</span>
+  </header>
 
-<h1>Lever-Runner</h1>
-<p class="tagline">A small AI command executor. The LLM only ever sees a short phrase. Shell commands come from a pre-approved table.</p>
+  <div class="cmd-bar">
+    <input id="request" placeholder="e.g. check disk usage" autofocus
+           onkeydown="if(event.key==='Enter')runCmd()">
+    <button id="runBtn" onclick="runCmd()">Run</button>
+  </div>
 
-<div class="badges">
-  <a href="https://github.com/SuperInstance/lever-runner"><img alt="repo" src="https://img.shields.io/badge/github-SuperInstance%2Flever--runner-blue"></a>
-  <a href="https://github.com/SuperInstance/lever-runner/releases/tag/v0.1.0"><img alt="release" src="https://img.shields.io/badge/release-v0.1.0-green"></a>
-  <a href="https://github.com/SuperInstance/lever-runner/actions/workflows/smoke.yml"><img alt="smoke" src="https://github.com/SuperInstance/lever-runner/actions/workflows/smoke.yml/badge.svg"></a>
-  <a href="../LICENSE"><img alt="license" src="https://img.shields.io/badge/license-MIT-blue"></a>
+  <div class="teach-bar">
+    <input id="teachPhrase" placeholder="intent phrase">
+    <input id="teachCmd" placeholder="shell command">
+    <button onclick="teachCmd()">Teach</button>
+  </div>
+
+  <div id="result" class="result">
+    <div class="result-header">
+      <span class="intent" id="resIntent"></span>
+      <span class="cmd" id="resCmd"></span>
+    </div>
+    <pre id="resOutput"></pre>
+    <div class="meta">
+      <span id="resExit"></span>
+      <span id="resTokens"></span>
+      <span id="resTime"></span>
+    </div>
+  </div>
+
+  <div class="cmd-list">
+    <h2>Commands</h2>
+    <div id="cmdTable"><span class="loading">Loading…</span></div>
+  </div>
 </div>
 
-<h2>What it is</h2>
-<p>
-  Lever-Runner is a thin layer on top of a vector database and an embedding model. A user types something like <em>"check disk usage"</em> in Telegram or on the CLI. A small LLM (<a href="https://huggingface.co/sentence-transformers/all-MiniLM-L6-v2">sentence-transformers/all-MiniLM-L6-v2</a> + a hosted or local LLM) turns that into a 3–8 word phrase. The phrase is matched against a <a href="https://lancedb.com/">LanceDB</a> table of pre-approved commands. The top match above the trust floor is executed in a sandboxed <code>/tmp/lever-runner/&lt;sid&gt;/</code> directory with a 30-second timeout.
-</p>
-<p>
-  The LLM never sees, never generates, and has no way to invent a shell command. The threat model is that the LLM can only output a phrase; phrases are matched against a fixed table; the LLM cannot inject shell.
-</p>
+<script>
+const API = location.port === '' ? 'http://localhost:8765' : '';
+let _start = 0;
 
-<h2>Try it in 60 seconds</h2>
-<pre><code>git clone https://github.com/SuperInstance/lever-runner
-cd lever-runner
-python3 -m venv .venv &amp;&amp; .venv/bin/pip install -e ".[dev]"
-.venv/bin/python init_db.py --reset
+async function api(path, opts = {}) {
+  const r = await fetch(API + path, opts);
+  return r.json();
+}
 
-# CLI
-.venv/bin/lever-runner "check disk usage"
-.venv/bin/lever-runner "show openclaw version"
-.venv/bin/lever-runner status
+function trustBadge(score) {
+  const cls = score >= 70 ? 'trust-high' : score >= 40 ? 'trust-mid' : 'trust-low';
+  return `<span class="trust-badge ${cls}">${score}</span>`;
+}
 
-# Smoke test (18 checks, &lt;2s, isolated tempdir)
-.venv/bin/python -m tests.smoke
+async function checkHealth() {
+  try {
+    const d = await api('/healthz');
+    document.getElementById('health').innerHTML =
+      `<span class="status-dot ok"></span>v${d.version} · ${d.total_commands} cmds · ${Math.round(d.uptime_sec)}s up`;
+  } catch {
+    document.getElementById('health').innerHTML = `<span class="status-dot err"></span>disconnected`;
+  }
+}
 
-# Benchmark (20 tasks; forces passthrough backend)
-.venv/bin/lever-runner-bench</code></pre>
+async function runCmd() {
+  const req = document.getElementById('request').value.trim();
+  if (!req) return;
+  document.getElementById('runBtn').disabled = true;
+  _start = performance.now();
+  try {
+    const d = await api('/run', {
+      method: 'POST',
+      headers: {'content-type': 'application/json'},
+      body: JSON.stringify({request: req}),
+    });
+    showResult(d);
+  } catch (e) {
+    showResult({ok: false, stderr: String(e), exit_code: -1});
+  }
+  document.getElementById('runBtn').disabled = false;
+}
 
-<h2>What it costs</h2>
-<table>
-  <tr><th></th><th>Lever-Runner</th><th>Tool-calling agent</th></tr>
-  <tr><td>LLM tokens per command</td><td><span class="num">&lt; 200</span> (target); ~70–90 prod, ~6 passthrough</td><td><span class="num">1,500–8,000</span></td></tr>
-  <tr><td>LLM sees shell?</td><td>No</td><td>Yes (via tool schema)</td></tr>
-  <tr><td>Adds a new capability</td><td><code>/teach</code> in Telegram (1 message)</td><td>Edit code, redeploy</td></tr>
-  <tr><td>Self-improves</td><td>Yes (<code>auto-promote</code>, hourly cron)</td><td>No (out of band)</td></tr>
-  <tr><td>Offline-capable</td><td>Yes (with <code>passthrough</code> or local Ollama)</td><td>Partially</td></tr>
-  <tr><td>Cloud bill</td><td><span class="num">$0</span> (passthrough / local) or pennies (hosted)</td><td>$5–$50+/mo</td></tr>
-</table>
-<p class="muted">"Passthrough" means the LLM isn't called at all; the user request is normalized and used as the intent phrase verbatim. This is the cheapest mode and what the benchmark measures.</p>
+async function teachCmd() {
+  const phrase = document.getElementById('teachPhrase').value.trim();
+  const cmd = document.getElementById('teachCmd').value.trim();
+  if (!phrase || !cmd) return;
+  try {
+    const d = await api('/teach', {
+      method: 'POST',
+      headers: {'content-type': 'application/json'},
+      body: JSON.stringify({intent_phrase: phrase, command: cmd}),
+    });
+    document.getElementById('teachPhrase').value = '';
+    document.getElementById('teachCmd').value = '';
+    loadCommands();
+  } catch (e) {
+    alert('Teach failed: ' + e);
+  }
+}
 
-<h2>How the trust model works</h2>
-<ul>
-  <li>New commands start at <code>trust = 50</code>.</li>
-  <li>Matches below <code>MATCH_MIN_TRUST</code> (default 40) are skipped.</li>
-  <li>Similarity below <code>MATCH_SIMILARITY_FLOOR</code> (default 0.55) → <code>no_match</code> + a <code>/teach</code> prompt.</li>
-  <li>Successful runs: trust <code>+1.5</code>, success_count <code>+1</code>.</li>
-  <li>Failed runs: trust <code>-4.0</code>, failure_count <code>+1</code>.</li>
-  <li>Hourly cron: commands with <code>success_count &gt; 20</code> and <code>trust &lt; 90</code> get <code>+10</code> (promotion).</li>
-  <li>Hourly cron: commands with <code>trust &lt; 30</code> and <code>failure_count &gt; 5</code> are surfaced for review. If <code>REMOTE_LLM_API_KEY</code> is set, a remote LLM is asked to propose a correction (opt-in only).</li>
-</ul>
+function showResult(d) {
+  const el = document.getElementById('result');
+  el.classList.add('show');
+  document.getElementById('resIntent').textContent = d.intent || '';
+  document.getElementById('resCmd').textContent = d.command || '';
+  const output = d.stdout || '';
+  const err = d.stderr ? '\n--- stderr ---\n' + d.stderr : '';
+  document.getElementById('resOutput').textContent = output + err;
+  document.getElementById('resExit').textContent = `exit: ${d.exit_code ?? '?'}`;
+  document.getElementById('resTokens').textContent =
+    `tokens: ${d.tokens_in ?? '?'}→${d.tokens_out ?? '?'}`;
+  const elapsed = _start ? ((performance.now() - _start) / 1000).toFixed(2) : '?';
+  document.getElementById('resTime').textContent = `${elapsed}s`;
+}
 
-<h2>Shareable command packs</h2>
-<p>Export your command table to JSONL and ship it.</p>
-<pre><code>.venv/bin/lever-runner-export --include-stats &gt; my-pack.jsonl
-# on another machine:
-.venv/bin/lever-runner-import my-pack.jsonl</code></pre>
-<p>See the <a href="../community/README.md">community packs</a> directory for an example.</p>
+async function loadCommands() {
+  try {
+    const d = await api('/commands');
+    const cmds = d.commands || [];
+    if (!cmds.length) {
+      document.getElementById('cmdTable').innerHTML = '<span class="loading">No commands yet.</span>';
+      return;
+    }
+    let html = '<table><tr><th>Intent</th><th>Command</th><th>Trust</th><th>✓ / ✗</th></tr>';
+    cmds.sort((a, b) => (b.trust_score || 0) - (a.trust_score || 0));
+    for (const c of cmds) {
+      html += `<tr>
+        <td>${c.intent_phrase || ''}</td>
+        <td><code>${c.command || ''}</code></td>
+        <td>${trustBadge(c.trust_score ?? 0)}</td>
+        <td>${c.success_count ?? 0} / ${c.failure_count ?? 0}</td>
+      </tr>`;
+    }
+    html += '</table>';
+    document.getElementById('cmdTable').innerHTML = html;
+  } catch {
+    document.getElementById('cmdTable').innerHTML = '<span class="loading">Failed to load commands.</span>';
+  }
+}
 
-<h2>What it's not</h2>
-<ul>
-  <li>Not a general agent. The LLM cannot reason about novel intents; the intent must match a seeded command (or you <code>/teach</code> it).</li>
-  <li>Not a security boundary on its own. The sandbox is per-session <code>/tmp</code>; it does not namespace, drop capabilities, or chroot. Run untrusted commands at your own risk.</li>
-  <li>Not a drop-in replacement for a tool-calling agent. The token savings come from giving up the ability to invent new commands on the fly.</li>
-</ul>
-
-<h2>Links</h2>
-<ul>
-  <li><a href="https://github.com/SuperInstance/lever-runner">Repository</a></li>
-  <li><a href="https://github.com/SuperInstance/lever-runner/releases">Releases</a></li>
-  <li><a href="https://github.com/SuperInstance/lever-runner/blob/main/README.md">README</a></li>
-  <li><a href="https://github.com/SuperInstance/lever-runner/blob/main/AGENTS.md">AGENTS.md</a> (operator notes)</li>
-</ul>
-
-<footer>
-  <span class="muted">Lever-Runner is MIT-licensed. No analytics, no telemetry, no phone-home.</span>
-</footer>
-
+checkHealth();
+loadCommands();
+setInterval(checkHealth, 30000);
+</script>
 </body>
 </html>

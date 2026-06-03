@@ -1,0 +1,30 @@
+{"intent":"list running containers","command":"docker ps","category":"docker"}
+{"intent":"list all containers including stopped","command":"docker ps -a","category":"docker"}
+{"intent":"show docker images","command":"docker images","category":"docker"}
+{"intent":"show docker disk usage","command":"docker system df","category":"docker"}
+{"intent":"remove dangling images","command":"docker image prune -f","category":"docker"}
+{"intent":"show container logs","command":"docker logs --tail 100","category":"docker"}
+{"intent":"restart a docker container","command":"docker restart","category":"docker"}
+{"intent":"stop all running containers","command":"docker stop $(docker ps -q)","category":"docker"}
+{"intent":"show docker compose status","command":"docker compose ps","category":"docker"}
+{"intent":"pull latest image","command":"docker pull","category":"docker"}
+{"intent":"list running pods","command":"kubectl get pods","category":"kubectl"}
+{"intent":"list pods in all namespaces","command":"kubectl get pods --all-namespaces","category":"kubectl"}
+{"intent":"show pod details","command":"kubectl describe pod","category":"kubectl"}
+{"intent":"show pod logs","command":"kubectl logs --tail=100","category":"kubectl"}
+{"intent":"list deployments","command":"kubectl get deployments","category":"kubectl"}
+{"intent":"list services","command":"kubectl get services","category":"kubectl"}
+{"intent":"show nodes","command":"kubectl get nodes","category":"kubectl"}
+{"intent":"show cluster resources","command":"kubectl top nodes","category":"kubectl"}
+{"intent":"show pod resource usage","command":"kubectl top pods","category":"kubectl"}
+{"intent":"apply kubernetes manifest","command":"kubectl apply -f","category":"kubectl"}
+{"intent":"check systemd service status","command":"systemctl status","category":"systemd"}
+{"intent":"list failed services","command":"systemctl --failed","command":"systemctl --failed","category":"systemd"}
+{"intent":"show service logs","command":"journalctl -u --no-pager -n 50","category":"systemd"}
+{"intent":"restart systemd service","command":"systemctl restart","category":"systemd"}
+{"intent":"check nginx config syntax","command":"nginx -t","category":"nginx"}
+{"intent":"reload nginx config","command":"nginx -s reload","category":"nginx"}
+{"intent":"show nginx status","command":"systemctl status nginx","category":"nginx"}
+{"intent":"show active connections","command":"ss -tunlp","category":"networking"}
+{"intent":"show listening ports","command":"ss -lntp","category":"networking"}
+{"intent":"show uptime and load","command":"uptime","category":"systemd"}

@@ -1,0 +1,20 @@
+{"intent":"show working tree status","command":"git status","category":"git"}
+{"intent":"show commit log","command":"git log --oneline -20","category":"git"}
+{"intent":"show diff of staged changes","command":"git diff --cached","category":"git"}
+{"intent":"show diff of unstaged changes","command":"git diff","category":"git"}
+{"intent":"stage all changes","command":"git add -A","category":"git"}
+{"intent":"commit staged changes","command":"git commit -m","category":"git"}
+{"intent":"push to remote","command":"git push","category":"git"}
+{"intent":"pull latest from remote","command":"git pull --rebase","category":"git"}
+{"intent":"show branches","command":"git branch -a","category":"git"}
+{"intent":"create and switch to new branch","command":"git checkout -b","category":"git"}
+{"intent":"switch branch","command":"git checkout","category":"git"}
+{"intent":"merge branch into current","command":"git merge","category":"git"}
+{"intent":"stash current changes","command":"git stash","category":"git"}
+{"intent":"pop stashed changes","command":"git stash pop","category":"git"}
+{"intent":"show remote repositories","command":"git remote -v","category":"git"}
+{"intent":"show last commit details","command":"git show HEAD","category":"git"}
+{"intent":"list tags","command":"git tag -l","category":"git"}
+{"intent":"show short stat summary","command":"git log --oneline --stat -5","category":"git"}
+{"intent":"reset to last commit keeping changes","command":"git reset --soft HEAD~1","category":"git"}
+{"intent":"show who changed each line","command":"git blame","category":"git"}

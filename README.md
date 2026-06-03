@@ -7,7 +7,7 @@
 [![Vector DB: LanceDB](https://img.shields.io/badge/vector-LanceDB-green.svg)]()
 [![smoke test](https://github.com/SuperInstance/lever-runner/actions/workflows/smoke.yml/badge.svg)](https://github.com/SuperInstance/lever-runner/actions/workflows/smoke.yml)
 
-A self-improving, token-lean AI command executor. You send natural language;
+An adaptive trust-scoring, token-lean AI command executor. You send natural language;
 Lever-Runner returns a pre-approved shell command and runs it. The local LLM
 only ever sees a short *intent phrase* — never tool schemas, never raw shell.
 
@@ -142,7 +142,7 @@ curl -X POST http://localhost:8765/run -d '{"request": "restart nginx"}' -H 'con
 | LLM sees shell? | **No** | Yes (via tool schema) | Yes |
 | Prompt-injection blast radius | Low (no shell synthesis) | High | High |
 | Adds a new capability | `/teach` in Telegram (1 message) | Edit code, redeploy | Edit code, redeploy |
-| Self-improves | Yes (auto_promote.py; rewrites gated on opt-in key) | No (out of band) | No (out of band) |
+| Auto-promotes trust scores | Yes (auto_promote.py; rewrites gated on opt-in key) | No (out of band) | No (out of band) |
 | Offline-capable | **Yes** (with `passthrough` or local Ollama) | Partially | No (usually) |
 | Min. RAM | 4 GB (passthrough); 12 GB+ with local 8B model | 8 GB + remote calls | 8 GB + remote calls |
 | Cloud bill | **$0** (local) / pennies (hosted) | $5 – $50+/mo | $20 – $200+/mo |
