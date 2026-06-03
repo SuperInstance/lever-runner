@@ -32,6 +32,13 @@ python -m lever_runner "what's my ip"
 
 Done. You just taught it something. It'll remember forever.
 
+To teach a parameterized command:
+```bash
+python -m lever_runner teach "show logs for {{container}}" --command "docker logs --tail 100 {{container}}"
+python -m lever_runner "show logs for nginx"
+# → runs: docker logs --tail 100 nginx
+```
+
 ---
 
 ```
@@ -75,6 +82,7 @@ trust score." A community-vetted command table does the rest.
 - **< 200 tokens** per executed command (target; real production cost is
   ~70–90 with a hosted LLM, ~6 with `LLM_BACKEND=passthrough`). Tool-calling
   agents routinely spend 1,500–8,000 tokens of prompt overhead per turn.
+  See [BENCHMARKS.md](BENCHMARKS.md) for detailed token and cost comparisons.
 - **24 GB RAM** is enough. `all-MiniLM-L6-v2` is ~80 MB; `llama3.1:8b-instruct-q4_K_M`
   fits comfortably alongside it. (Note: this is additive — running both
   OpenClaw and lever-runner on the same box requires both stacks' RAM.)
@@ -221,6 +229,10 @@ a phrase.
 - **No secrets in prompts.** The LLM never sees API keys, paths to credentials,
   or environment variables. The `.env` file is loaded only in the executor
   layer.
+
+## Related Projects
+
+**[pincherOS](https://github.com/SuperInstance/pincherOS)** — A Rust-based agent runtime with reflex caching, migration, and resource control. Where lever-runner is a lightweight command runner, pincherOS is a full agent state machine with .nail file migration between devices. Same thesis (LLM should do less), different scope.
 
 ## License
 
