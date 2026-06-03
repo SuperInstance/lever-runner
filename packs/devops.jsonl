@@ -1,30 +1,45 @@
 {"intent":"list running containers","command":"docker ps","category":"docker"}
 {"intent":"list all containers including stopped","command":"docker ps -a","category":"docker"}
+{"intent":"show logs for {{container}}","command":"docker logs --tail 100 {{container}}","category":"docker"}
+{"intent":"follow logs for {{container}}","command":"docker logs -f --tail 50 {{container}}","category":"docker"}
+{"intent":"restart container {{container}}","command":"docker restart {{container}}","category":"docker"}
+{"intent":"stop container {{container}}","command":"docker stop {{container}}","category":"docker"}
+{"intent":"execute {{command}} in {{container}}","command":"docker exec {{container}} {{command}}","category":"docker"}
+{"intent":"shell into container {{container}}","command":"docker exec -it {{container}} /bin/sh","category":"docker"}
 {"intent":"show docker images","command":"docker images","category":"docker"}
 {"intent":"show docker disk usage","command":"docker system df","category":"docker"}
 {"intent":"remove dangling images","command":"docker image prune -f","category":"docker"}
-{"intent":"show container logs","command":"docker logs --tail 100","category":"docker"}
-{"intent":"restart a docker container","command":"docker restart","category":"docker"}
-{"intent":"stop all running containers","command":"docker stop $(docker ps -q)","category":"docker"}
+{"intent":"docker compose up","command":"docker compose up -d","category":"docker"}
+{"intent":"docker compose down","command":"docker compose down","category":"docker"}
+{"intent":"docker compose logs for {{service}}","command":"docker compose logs --tail 100 {{service}}","category":"docker"}
+{"intent":"docker compose restart {{service}}","command":"docker compose restart {{service}}","category":"docker"}
+{"intent":"docker compose pull images","command":"docker compose pull","category":"docker"}
 {"intent":"show docker compose status","command":"docker compose ps","category":"docker"}
-{"intent":"pull latest image","command":"docker pull","category":"docker"}
-{"intent":"list running pods","command":"kubectl get pods","category":"kubectl"}
-{"intent":"list pods in all namespaces","command":"kubectl get pods --all-namespaces","category":"kubectl"}
-{"intent":"show pod details","command":"kubectl describe pod","category":"kubectl"}
-{"intent":"show pod logs","command":"kubectl logs --tail=100","category":"kubectl"}
-{"intent":"list deployments","command":"kubectl get deployments","category":"kubectl"}
-{"intent":"list services","command":"kubectl get services","category":"kubectl"}
-{"intent":"show nodes","command":"kubectl get nodes","category":"kubectl"}
-{"intent":"show cluster resources","command":"kubectl top nodes","category":"kubectl"}
-{"intent":"show pod resource usage","command":"kubectl top pods","category":"kubectl"}
-{"intent":"apply kubernetes manifest","command":"kubectl apply -f","category":"kubectl"}
-{"intent":"check systemd service status","command":"systemctl status","category":"systemd"}
-{"intent":"list failed services","command":"systemctl --failed","command":"systemctl --failed","category":"systemd"}
-{"intent":"show service logs","command":"journalctl -u --no-pager -n 50","category":"systemd"}
-{"intent":"restart systemd service","command":"systemctl restart","category":"systemd"}
+{"intent":"pull docker image {{image}}","command":"docker pull {{image}}","category":"docker"}
+{"intent":"check status of {{service}}","command":"systemctl status {{service}}","category":"systemd"}
+{"intent":"restart {{service}}","command":"systemctl restart {{service}}","category":"systemd"}
+{"intent":"stop {{service}}","command":"systemctl stop {{service}}","category":"systemd"}
+{"intent":"enable {{service}} on boot","command":"systemctl enable {{service}}","category":"systemd"}
+{"intent":"list failed services","command":"systemctl --failed","category":"systemd"}
+{"intent":"show logs for {{service}} since 1 hour ago","command":"journalctl -u {{service}} --since \"1 hour ago\" --no-pager","category":"systemd"}
+{"intent":"show recent logs for {{service}}","command":"journalctl -u {{service}} --no-pager -n 50","category":"systemd"}
 {"intent":"check nginx config syntax","command":"nginx -t","category":"nginx"}
 {"intent":"reload nginx config","command":"nginx -s reload","category":"nginx"}
-{"intent":"show nginx status","command":"systemctl status nginx","category":"nginx"}
-{"intent":"show active connections","command":"ss -tunlp","category":"networking"}
-{"intent":"show listening ports","command":"ss -lntp","category":"networking"}
-{"intent":"show uptime and load","command":"uptime","category":"systemd"}
+{"intent":"show nginx site config for {{site}}","command":"cat /etc/nginx/sites-enabled/{{site}}","category":"nginx"}
+{"intent":"test nginx config and reload","command":"nginx -t && nginx -s reload","category":"nginx"}
+{"intent":"show processes matching {{process}}","command":"ps aux | grep {{process}}","category":"process"}
+{"intent":"kill process {{pid}}","command":"kill -9 {{pid}}","category":"process"}
+{"intent":"show what is listening on port {{port}}","command":"lsof -i :{{port}}","category":"process"}
+{"intent":"show disk usage for {{path}}","command":"du -sh {{path}}","category":"disk"}
+{"intent":"find files matching {{pattern}} in {{path}}","command":"find {{path}} -name \"{{pattern}}\"","category":"disk"}
+{"intent":"show filesystem disk space","command":"df -h","category":"disk"}
+{"intent":"show block devices","command":"lsblk","category":"disk"}
+{"intent":"show largest files in {{path}}","command":"du -ah {{path}} | sort -rh | head -20","category":"disk"}
+{"intent":"check listening ports for {{port}}","command":"ss -tlnp | grep {{port}}","category":"network"}
+{"intent":"http headers for {{url}}","command":"curl -I {{url}}","category":"network"}
+{"intent":"dns lookup for {{domain}}","command":"dig {{domain}}","category":"network"}
+{"intent":"trace route to {{host}}","command":"traceroute -m 15 {{host}}","category":"network"}
+{"intent":"check http response from {{url}}","command":"curl -s -o /dev/null -w \"%{http_code}\" {{url}}","category":"network"}
+{"intent":"tail last 100 lines of {{logfile}}","command":"tail -100 {{logfile}}","category":"logs"}
+{"intent":"search for {{pattern}} in {{file}}","command":"grep \"{{pattern}}\" {{file}}","category":"logs"}
+{"intent":"watch {{logfile}} for changes","command":"tail -f {{logfile}}","category":"logs"}

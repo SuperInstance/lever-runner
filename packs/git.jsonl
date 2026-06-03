@@ -1,20 +1,32 @@
 {"intent":"show working tree status","command":"git status","category":"git"}
-{"intent":"show commit log","command":"git log --oneline -20","category":"git"}
+{"intent":"show last 10 commits","command":"git log --oneline -10","category":"git"}
+{"intent":"show commit graph all branches","command":"git log --all --graph --oneline","category":"git"}
+{"intent":"show diff against {{branch}}","command":"git diff {{branch}}","category":"git"}
 {"intent":"show diff of staged changes","command":"git diff --cached","category":"git"}
 {"intent":"show diff of unstaged changes","command":"git diff","category":"git"}
 {"intent":"stage all changes","command":"git add -A","category":"git"}
-{"intent":"commit staged changes","command":"git commit -m","category":"git"}
+{"intent":"stage {{file}}","command":"git add {{file}}","category":"git"}
+{"intent":"commit with message {{message}}","command":"git commit -m \"{{message}}\"","category":"git"}
+{"intent":"amend last commit","command":"git commit --amend --no-edit","category":"git"}
+{"intent":"push to {{remote}} {{branch}}","command":"git push {{remote}} {{branch}}","category":"git"}
 {"intent":"push to remote","command":"git push","category":"git"}
-{"intent":"pull latest from remote","command":"git pull --rebase","category":"git"}
-{"intent":"show branches","command":"git branch -a","category":"git"}
-{"intent":"create and switch to new branch","command":"git checkout -b","category":"git"}
-{"intent":"switch branch","command":"git checkout","category":"git"}
-{"intent":"merge branch into current","command":"git merge","category":"git"}
+{"intent":"pull with rebase","command":"git pull --rebase","category":"git"}
+{"intent":"fetch from origin","command":"git fetch origin","category":"git"}
+{"intent":"show all branches","command":"git branch -a","category":"git"}
+{"intent":"create and switch to {{branch}}","command":"git checkout -b {{branch}}","category":"git"}
+{"intent":"switch to {{branch}}","command":"git checkout {{branch}}","category":"git"}
+{"intent":"delete branch {{branch}}","command":"git branch -d {{branch}}","category":"git"}
+{"intent":"merge {{branch}} into current","command":"git merge {{branch}}","category":"git"}
 {"intent":"stash current changes","command":"git stash","category":"git"}
 {"intent":"pop stashed changes","command":"git stash pop","category":"git"}
+{"intent":"show stash list","command":"git stash list","category":"git"}
 {"intent":"show remote repositories","command":"git remote -v","category":"git"}
-{"intent":"show last commit details","command":"git show HEAD","category":"git"}
 {"intent":"list tags","command":"git tag -l","category":"git"}
+{"intent":"create tag {{tag}}","command":"git tag {{tag}}","category":"git"}
 {"intent":"show short stat summary","command":"git log --oneline --stat -5","category":"git"}
+{"intent":"show who changed each line in {{file}}","command":"git blame {{file}}","category":"git"}
 {"intent":"reset to last commit keeping changes","command":"git reset --soft HEAD~1","category":"git"}
-{"intent":"show who changed each line","command":"git blame","category":"git"}
+{"intent":"show last commit details","command":"git show HEAD","category":"git"}
+{"intent":"cherry-pick commit {{commit}}","command":"git cherry-pick {{commit}}","category":"git"}
+{"intent":"rebase onto {{branch}}","command":"git rebase {{branch}}","category":"git"}
+{"intent":"show log for {{file}}","command":"git log --oneline -- {{file}}","category":"git"}
