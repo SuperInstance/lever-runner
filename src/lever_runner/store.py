@@ -218,8 +218,9 @@ class CommandStore:
         .to_pandas() / .search() pagination semantics vary by version; the
         tables we're listing from are O(hundreds) rows so this is fine.
         """
-        # ``only_active`` uses trust_score >= 1 as a proxy for "not soft-
-        # deleted" because soft_delete() zeroes the trust_score.
+        # ``only_active`` filters out rows with trust_score < 1, which
+        # catches any legacy zeroed-trust rows from before delete_command()
+        # was renamed. For current data, delete_command() removes rows outright.
         trust_floor = max(min_trust, 1.0) if only_active else min_trust
         df = self.table.to_pandas()
         df = df[df["id"] != "__schema_seed__"]
@@ -308,5 +309,6 @@ class CommandStore:
                 },
             )
 
-    def soft_delete(self, row_id: str) -> None:
+    def delete_command(self, row_id: str) -> None:
+        """Permanently remove a command from the table by id."""
         self.table.delete(f"id = '{row_id}'")

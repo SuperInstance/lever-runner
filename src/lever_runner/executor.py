@@ -9,7 +9,9 @@ stdout/stderr.
 
 from __future__ import annotations
 
+import logging
 import os
+import re
 import resource
 import shutil
 import signal
@@ -18,6 +20,8 @@ import time
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
+
+logger = logging.getLogger(__name__)
 
 SANDBOX_ROOT = Path(os.getenv("SANDBOX_ROOT", "/tmp/lever-runner"))
 TIMEOUT_SEC = int(os.getenv("COMMAND_TIMEOUT_SEC", "30"))
@@ -28,6 +32,11 @@ MAX_MEMORY_MB = int(os.getenv("SANDBOX_RLIMIT_AS_MB", "512"))
 
 # Allowed PATH entries — only standard system paths
 SANDBOX_PATH = "/usr/local/sbin:/usr/local/bin:/usr/sbin:/usr/bin:/sbin:/bin"
+
+# Metacharacters that indicate shell injection in command arguments.
+_BLOCKED_METACHAR_RE = re.compile(r'[\$\`\;\|\&<>]')
+# Characters allowed in individual arguments (alphanumeric + safe punctuation).
+_SAFE_ARG_RE = re.compile(r'^[A-Za-z0-9\-_\.\/:=]+$')
 
 # Environment variables whitelisted for sandboxed commands
 _ENV_WHITELIST = frozenset({
@@ -88,9 +97,39 @@ def _set_resource_limits() -> None:
             pass
 
 
+def _validate_command(command: str) -> str | None:
+    """Check a command string for shell-injection metacharacters.
+
+    Returns an error message if validation fails, or None if the command
+    looks safe. We split the command on whitespace and check each token
+    (after the first, which is the program name) against a safe-character
+    whitelist.
+    """
+    if _BLOCKED_METACHAR_RE.search(command):
+        return f"rejected: command contains blocked metacharacters: {command!r}"
+    parts = command.split()
+    for part in parts[1:]:
+        if not _SAFE_ARG_RE.match(part):
+            return f"rejected: argument contains unsafe characters: {part!r} in {command!r}"
+    return None
+
+
 def run_command(command: str) -> RunResult:
     """Execute a shell command string in a fresh sandbox dir with
     restricted env, resource limits, and process-group kill on timeout."""
+    # Validate command for shell-injection metacharacters before execution.
+    validation_error = _validate_command(command)
+    if validation_error:
+        logger.warning("[executor] %s", validation_error)
+        return RunResult(
+            ok=False,
+            exit_code=-1,
+            stdout="",
+            stderr=validation_error,
+            duration_sec=0.0,
+            session_id="blocked",
+            cwd="",
+        )
     session = _new_session()
     start = time.time()
     timed_out = False

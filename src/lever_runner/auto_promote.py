@@ -146,7 +146,7 @@ def rewrite_losers(store: CommandStore) -> int:
         except Exception as e:
             print(f"  insert failed: {e}", file=sys.stderr)
             continue
-        store.soft_delete(r["id"])
+        store.delete_command(r["id"])
         n += 1
         print(f"  rewrote: {r['intent_phrase']!r}  {r['command']!r}  ->  {new_cmd!r}")
     if not candidates:

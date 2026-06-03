@@ -133,4 +133,4 @@ The loop is a no-op if no rows are below the failure threshold and no `REMOTE_LL
 - No HTTP auth on `http_api.py` — assumes the loopback interface or a trusted network. Add a token check before exposing.
 - No prompt-injection guardrails on the LLM backend. The threat model is "the LLM can only output a phrase; the phrase is matched against a fixed table; the LLM cannot inject shell." That's the design. If you let the LLM also call tools, you've lost the security property.
 - No multi-user trust isolation. The trust score is global, not per-user.
-- No undo for `/teach`. You can `soft_delete` rows by id, but there is no command-line undo.
+- No undo for `/teach`. You can `delete_command` rows by id, but there is no command-line undo.

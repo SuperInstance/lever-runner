@@ -14,7 +14,7 @@ Covers:
   4.  teach -> run cycle: a freshly-inserted row is findable on the next call
   5.  trust bumps +1.5 on success, persists
   6.  trust drops -4.0 on failure, persists
-  7.  soft_delete removes a row
+  7.  delete_command removes a row
   8.  find_best returns the closest match, not a high-trust-but-distant one
       (regression test for the inverted-priority bug)
   9.  per-chat isolation: a /teach in chat A is invisible to chat B
@@ -150,11 +150,11 @@ def main() -> int:
         f"trust={m_fail.trust_score}",
     )
 
-    # 6. soft_delete
-    print("\n[6] soft_delete")
+    # 6. delete_command
+    print("\n[6] delete_command")
     pre = store.count()
-    store.soft_delete(new_id)
-    store.soft_delete(fail_id)
+    store.delete_command(new_id)
+    store.delete_command(fail_id)
     check("count decremented by 2", store.count() == pre - 2, f"pre={pre} post={store.count()}")
 
     # 7. Regression: high-trust wrong match should NOT be picked over
@@ -174,8 +174,8 @@ def main() -> int:
         r.match is not None and r.match.id == target_id,
         f"match={r.match.intent_phrase if r.match else None}",
     )
-    store.soft_delete(target_id)
-    store.soft_delete(other_id)
+    store.delete_command(target_id)
+    store.delete_command(other_id)
 
     # 8. Per-chat isolation: /teach in chat A is invisible to chat B
     # (regression test for v0.2 per-chat trust).
@@ -227,8 +227,8 @@ def main() -> int:
           f"n={n2} trust={sat.trust_score}")
 
     # cleanup the promote-test rows
-    store.soft_delete(promo_id)
-    store.soft_delete(sat_id)
+    store.delete_command(promo_id)
+    store.delete_command(sat_id)
 
     # 10. auto_promote.rewrite_losers without REMOTE_LLM_API_KEY: should
     #     be a no-op (no rewrites) even if there are low-trust failing
@@ -249,7 +249,7 @@ def main() -> int:
         still_there = store.find_best(loser_phrase, top_k=1)
         check("loser row is still present (not deleted)",
               len(still_there) == 1 and still_there[0].id == loser_id)
-        store.soft_delete(loser_id)
+        store.delete_command(loser_id)
     finally:
         if saved_key is not None:
             os.environ["REMOTE_LLM_API_KEY"] = saved_key
@@ -552,7 +552,7 @@ def main() -> int:
     m = sm.find_best(phrase_a, top_k=1)[0]
     check("orchestrator.teach honors --trust=70", abs(m.trust_score - 70.0) < 0.01,
           f"trust={m.trust_score}")
-    sm.soft_delete(row_id_a)
+    sm.delete_command(row_id_a)
 
     # 17b. default trust (50) when trust is None
     phrase_b = f"smoke trust default {uuid.uuid4().hex[:6]}"
@@ -560,7 +560,7 @@ def main() -> int:
     m = sm.find_best(phrase_b, top_k=1)[0]
     check("orchestrator.teach defaults to trust=50", abs(m.trust_score - 50.0) < 0.01,
           f"trust={m.trust_score}")
-    sm.soft_delete(row_id_b)
+    sm.delete_command(row_id_b)
 
     # 17c. bot.cmd_teach with --trust=70 flag
     bot_mod.ALLOWED_USER_ID = "42"
@@ -574,7 +574,7 @@ def main() -> int:
     if m:
         check("bot --trust=75 actually stored trust=75",
               abs(m[0].trust_score - 75.0) < 0.01, f"trust={m[0].trust_score}")
-        CommandStore(chat_id="12345").soft_delete(m[0].id)
+        CommandStore(chat_id="12345").delete_command(m[0].id)
 
     # 17d. bot.cmd_teach with bad --trust value
     u = _Update(uid=42, chat_id=12345, text='/teach --trust=abc "phrase" | cmd')
@@ -663,7 +663,7 @@ def main() -> int:
           f"reply={u.message.replies[0]!r}")
 
     # 14. Reset all trust scores we touched (should be none — we deleted them)
-    print("\n[cleanup] all test rows soft-deleted; trust scores untouched")
+    print("\n[cleanup] all test rows deleted; trust scores untouched")
 
     # Summary
     total = len(results)
