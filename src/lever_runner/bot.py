@@ -295,7 +295,7 @@ async def cmd_teach(update: Update, ctx: ContextTypes.DEFAULT_TYPE) -> None:
         )
         return
     phrase_part, _, cmd_part = raw.partition("|")
-    phrase = phrase_part.strip().strip('"').strip("'")
+    phrase = phrase_part.strip().strip('"').strip("'").strip()
     command = cmd_part.strip()
     if not phrase or not command:
         await update.message.reply_text("both intent phrase and command are required")

@@ -434,7 +434,7 @@ class TestCmdTeach:
         mock_update.message.reply_text.assert_awaited_once()
         reply = mock_update.message.reply_text.call_args[0][0]
         assert "taught" in reply
-        assert "row_id_1234" in reply  # bot truncates to 8 chars
+        assert "row_id_1" in reply  # bot truncates to 8 chars
         assert "check disk" in reply
         assert "df -h" in reply
 
@@ -655,7 +655,7 @@ class TestMain:
 
         with (
             patch.object(bot_mod, "TELEGRAM_BOT_TOKEN", "fake:token"),
-            patch.object(Application, "builder", return_value=mock_builder),
+            patch.object(bot_mod.Application, "builder", return_value=mock_builder),
             patch.object(bot_mod, "log"),
             patch.object(mock_app, "run_polling"),
         ):
@@ -674,7 +674,7 @@ class TestMain:
 
         with (
             patch.object(bot_mod, "TELEGRAM_BOT_TOKEN", "fake:token"),
-            patch.object(Application, "builder", return_value=mock_builder),
+            patch.object(bot_mod.Application, "builder", return_value=mock_builder),
             patch.object(bot_mod, "log"),
             patch.object(mock_app, "run_polling"),
         ):
