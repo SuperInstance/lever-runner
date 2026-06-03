@@ -94,6 +94,8 @@ def _is_authorized(update: Update) -> bool:
     When ALLOWED_USER_ID is unset, the bot responds to anyone — useful for
     testing. Set it in .env to a Telegram numeric user ID to lock down.
     """
+    if update.effective_user is None:
+        return False
     if not ALLOWED_USER_ID:
         return True
     try:
