@@ -31,6 +31,7 @@ import sys
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 from urllib.parse import parse_qs, urlparse
 
+from dataclasses import dataclass
 from dotenv import load_dotenv
 
 from .orchestrator import do, status, teach, list_commands
@@ -44,6 +45,52 @@ PORT = int(os.getenv("HTTP_PORT", "8765"))
 BIND = os.getenv("HTTP_BIND", "127.0.0.1")
 API_TOKEN = os.getenv("HTTP_API_TOKEN", "").strip()
 _STARTED_AT = time.time()
+
+# Rate limiting
+_RATE_LIMIT_RPM = int(os.getenv("HTTP_RATE_LIMIT", "60"))  # requests per minute
+_RATE_LIMIT_WINDOW = 60.0  # window in seconds
+_MAX_REQUEST_BYTES = int(os.getenv("HTTP_MAX_BODY_BYTES", str(2 * 1024 * 1024)))  # 2 MB
+
+
+@dataclass
+class _Window:
+    count: int
+    reset_at: float
+
+
+class _RateLimiter:
+    """Simple per-IP fixed-window rate limiter. Sliding-window accuracy
+    isn't needed here; we just prevent runaway usage."""
+
+    def __init__(self, rpm: int = 60):
+        self._rpm = rpm
+        self._windows: dict[str, _Window] = {}
+
+    def _get_or_create(self, key: str) -> _Window:
+        now = time.time()
+        w = self._windows.get(key)
+        if w is None or now >= w.reset_at:
+            w = _Window(count=0, reset_at=now + _RATE_LIMIT_WINDOW)
+            self._windows[key] = w
+        return w
+
+    def allow(self, key: str) -> tuple[bool, int, float]:
+        """Return (allowed, requests_remaining_in_window, window_reset_at)."""
+        w = self._get_or_create(key)
+        if w.count >= self._rpm:
+            return False, 0, w.reset_at
+        w.count += 1
+        return True, self._rpm - w.count, w.reset_at
+
+    def cleanup(self) -> None:
+        """Evict stale windows to prevent unbounded memory growth."""
+        now = time.time()
+        stale = [k for k, w in self._windows.items() if now >= w.reset_at]
+        for k in stale:
+            del self._windows[k]
+
+
+_limiter = _RateLimiter(rpm=_RATE_LIMIT_RPM)
 
 
 def _is_loopback(host: str) -> bool:
@@ -81,13 +128,49 @@ class Handler(BaseHTTPRequestHandler):
         ".svg": "image/svg+xml",
     }
 
-    def _send(self, code: int, payload: dict) -> None:
+    def _send(self, code: int, payload: dict, *, headers: dict | None = None) -> None:
         body = json.dumps(payload).encode()
         self.send_response(code)
         self.send_header("content-type", "application/json")
         self.send_header("content-length", str(len(body)))
+        for k, v in (headers or {}).items():
+            self.send_header(k, v)
         self.end_headers()
         self.wfile.write(body)
+
+    def _rate_limit(self) -> bool:
+        """Apply per-IP rate limit. Returns False if the request should be
+        rejected (and already sent a 429 response)."""
+        client = self.client_address[0] if self.client_address else "unknown"
+        allowed, remaining, reset_at = _limiter.allow(client)
+        if not allowed:
+            retry_after = int(reset_at - time.time()) + 1
+            self._send(429, {"error": "rate limit exceeded, try again later", "retry_after_sec": retry_after},
+                       headers={"retry-after": str(retry_after)})
+            return False
+        return True
+
+    def _read_body(self, max_bytes: int = _MAX_REQUEST_BYTES) -> bytes:
+        """Read the request body, enforcing a size limit. Returns empty
+        bytes if the content-length is missing or exceeds the limit."""
+        try:
+            length = int(self.headers.get("content-length", "0"))
+        except (ValueError, TypeError):
+            length = 0
+        if length > max_bytes:
+            return b""
+        return self.rfile.read(length) if length else b""
+
+    def _check_token(self) -> bool:
+        """Return True if the request is authorized (no token configured
+        or bearer token matches). If this returns False, the caller must
+        still send the 401 — we just check."""
+        if not API_TOKEN:
+            return True
+        auth = self.headers.get("authorization", "")
+        if not auth.lower().startswith("bearer "):
+            return False
+        return auth.split(" ", 1)[1].strip() == API_TOKEN
 
     def _serve_file(self, rel_path: str) -> None:
         """Serve a static file from the web/ directory."""
@@ -120,6 +203,9 @@ class Handler(BaseHTTPRequestHandler):
             self.wfile.write(f.read())
 
     def do_GET(self):  # noqa: N802
+        if not self._rate_limit():
+            _limiter.cleanup()
+            return
         url = urlparse(self.path)
         qs = parse_qs(url.query)
         if url.path == "/status":
@@ -153,9 +239,10 @@ class Handler(BaseHTTPRequestHandler):
                 "uptime_sec": round(time.time() - _STARTED_AT, 1),
                 "tables": counts,
                 "total_commands": total,
-                "lancedb_path": LANCEDB_PATH,
             })
         elif url.path == "/commands":
+            if not self._check_token():
+                return self._send(401, {"error": "missing or invalid bearer token"})
             try:
                 chat_id = _chat_id_from({}, qs)
                 cmds = list(list_commands(chat_id=chat_id))
@@ -166,9 +253,13 @@ class Handler(BaseHTTPRequestHandler):
             self._serve_file(url.path)
 
     def do_POST(self):  # noqa: N802
+        if not self._rate_limit():
+            _limiter.cleanup()
+            return
         try:
-            length = int(self.headers.get("content-length", "0"))
-            raw = self.rfile.read(length) if length else b""
+            raw = self._read_body()
+            if not raw and int(self.headers.get("content-length", "0") or "0") > _MAX_REQUEST_BYTES:
+                return self._send(413, {"error": f"request body exceeds {_MAX_REQUEST_BYTES} byte limit"})
             data = json.loads(raw or b"{}")
         except json.JSONDecodeError as e:
             return self._send(400, {"error": f"bad json: {e}"})
@@ -179,7 +270,7 @@ class Handler(BaseHTTPRequestHandler):
         # All POST endpoints can mutate state (/teach) or trigger
         # command execution (/run). Require the bearer token if one
         # is configured.
-        if not _check_token(self.headers):
+        if not self._check_token():
             self._send(401, {"error": "missing or invalid bearer token (set HTTP_API_TOKEN)"})
             return
         chat_id = _chat_id_from(data, qs)

@@ -15,6 +15,7 @@ from __future__ import annotations
 
 import os
 import re
+import threading
 import uuid
 from dataclasses import dataclass
 from pathlib import Path
@@ -121,6 +122,7 @@ class CommandStore:
 
         rc_interval = timedelta(seconds=float(os.getenv("READ_CONSISTENCY_INTERVAL_SEC", "0")))
         self.db = lancedb.connect(LANCEDB_PATH, read_consistency_interval=rc_interval)
+        self._lock = threading.Lock()
 
         # One-time migration: rename the v0.1.x 'commands' table to
         # 'commands_default' if it has real data.
@@ -279,26 +281,32 @@ class CommandStore:
     def update_trust(
         self, row_id: str, *, success: bool, trust_bump: float = 1.5, trust_penalty: float = 4.0
     ) -> None:
-        """Apply a small trust adjustment + bump the appropriate counter."""
-        rows = self.table.search().limit(1).where(f"id = '{row_id}'").to_list()
-        if not rows:
-            return
-        r = rows[0]
-        new_trust = float(r["trust_score"])
-        if success:
-            new_trust = min(100.0, new_trust + trust_bump)
-        else:
-            new_trust = max(0.0, new_trust - trust_penalty)
-        new_success = int(r["success_count"]) + (1 if success else 0)
-        new_failure = int(r["failure_count"]) + (0 if success else 1)
-        self.table.update(
-            where=f"id = '{row_id}'",
-            values={
-                "trust_score": new_trust,
-                "success_count": new_success,
-                "failure_count": new_failure,
-            },
-        )
+        """Apply a small trust adjustment + bump the appropriate counter.
+
+        Uses a per-store lock to serialize concurrent updates to the same
+        row, preventing lost updates when two requests race on the same
+        command (classic TOCTOU on the read-modify-write cycle).
+        """
+        with self._lock:
+            rows = self.table.search().limit(1).where(f"id = '{row_id}'").to_list()
+            if not rows:
+                return
+            r = rows[0]
+            new_trust = float(r["trust_score"])
+            if success:
+                new_trust = min(100.0, new_trust + trust_bump)
+            else:
+                new_trust = max(0.0, new_trust - trust_penalty)
+            new_success = int(r["success_count"]) + (1 if success else 0)
+            new_failure = int(r["failure_count"]) + (0 if success else 1)
+            self.table.update(
+                where=f"id = '{row_id}'",
+                values={
+                    "trust_score": new_trust,
+                    "success_count": new_success,
+                    "failure_count": new_failure,
+                },
+            )
 
     def soft_delete(self, row_id: str) -> None:
         self.table.delete(f"id = '{row_id}'")
