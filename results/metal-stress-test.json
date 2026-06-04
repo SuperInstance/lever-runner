@@ -1,0 +1,21 @@
+{
+  "hardware": "RTX 4050 + Ryzen 9 5900X",
+  "date": "2026-06-03",
+  "hash": {"throughput_per_sec": 3224241, "per_us": 0.3},
+  "embed_python": {"throughput_per_sec": 62529, "per_us": 16.0},
+  "embed_rust": {"per_us": 1.73, "speedup": "9.2x"},
+  "search_cpu": {
+    "1K": "14.6µs", "5K": "60.5µs", "10K": "7.8ms",
+    "50K": "4.2ms", "100K": "4.8ms"
+  },
+  "gpu_vs_cpu": {
+    "1K": "0.1x (GPU slower)", "10K": "1.0x (tied)",
+    "100K": "2.9x", "1M": "6.8x"
+  },
+  "breaking_point": {
+    "10K": "6.8ms OK", "50K": "4.8ms OK",
+    "100K": "15.7ms WARN", "500K": "17.2ms WARN",
+    "1M": "81.3ms FAIL"
+  },
+  "conclusion": "CPU fine for <50K vectors. GPU crossover at 10K. GPU needed for >100K. lever-runner typical 1K-5K commands = CPU optimal."
+}
