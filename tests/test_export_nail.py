@@ -62,7 +62,7 @@ class TestNailHelpers:
         from lever_runner.export_nail import _build_identity
 
         ident = _build_identity()
-        assert ident["name"] == "lever-runner-export"
+        assert ident["agent_name"] == "lever-runner-export"
         assert "preferences" in ident
         assert ident["preferences"]["preferred_shell"] == "bash"
 
@@ -77,9 +77,9 @@ class TestNailHelpers:
         from lever_runner.export_nail import _build_manifest
 
         manifest = _build_manifest(42, {"reflexes_db": "abc123", "identity_json": "def456", "config_toml": "ghi789"})
-        assert manifest["version"] == "0.1.0"
+        assert manifest["version"] == 1
         assert manifest["reflex_count"] == 42
-        assert "timestamp" in manifest
+        assert "created_at" in manifest
         assert manifest["checksums"]["reflexes_db"] == "abc123"
 
 
@@ -163,7 +163,7 @@ class TestExportNail:
             # Verify manifest
             manifest_data = json.loads(tar.extractfile("manifest.json").read())
             assert manifest_data["reflex_count"] == 2
-            assert manifest_data["version"] == "0.1.0"
+            assert manifest_data["version"] == 1
 
             # Verify reflexes.db
             db_data = tar.extractfile("reflexes.db").read()

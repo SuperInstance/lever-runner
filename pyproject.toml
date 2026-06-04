@@ -4,7 +4,7 @@ build-backend = "hatchling.build"
 
 [project]
 name = "lever-runner"
-version = "0.3.1"
+version = "0.4.0"
 description = "Post-inference command execution. LLM produces a phrase, never a shell command."
 readme = "README.md"
 license = {file = "LICENSE"}
@@ -66,14 +66,10 @@ Homepage = "https://github.com/SuperInstance/lever-runner"
 Issues = "https://github.com/SuperInstance/lever-runner/issues"
 Releases = "https://github.com/SuperInstance/lever-runner/releases"
 
-[tool.setuptools]
-package-dir = {"" = "src"}
+[tool.hatch.build.targets.wheel]
+packages = ["src/lever_runner"]
 
-[tool.setuptools.packages.find]
-where = ["src"]
-include = ["lever_runner*"]
-
-[tool.setuptools.package-data]
+[tool.hatch.build.targets.wheel.package-data]
 lever_runner = ["py.typed"]
 
 # --- ruff (linter / formatter) ---------------------------------------------
