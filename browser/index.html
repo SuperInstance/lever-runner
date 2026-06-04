@@ -1,0 +1,23 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>lever-runner — Browser Edition</title>
+    <link rel="stylesheet" href="styles.css">
+    <script src="https://cdn.jsdelivr.net/pyodide/v0.24.1/full/pyodide.js"></script>
+</head>
+<body>
+    <div id="terminal">
+        <div id="output">
+            <p class="system">lever-runner browser edition</p>
+            <p class="system loading" id="load-msg">Loading Python runtime...</p>
+        </div>
+        <div id="input-line">
+            <span class="prompt">❯</span>
+            <input id="input" type="text" placeholder="Type a command... (e.g., 'check disk usage')" disabled>
+        </div>
+    </div>
+    <script src="app.js"></script>
+</body>
+</html>
