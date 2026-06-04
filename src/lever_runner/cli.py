@@ -398,6 +398,7 @@ def main(argv: list[str] | None = None) -> int:
     # Manual parse to handle no-subcommand case (argparse subparsers
     # don't play well with free-form positional args as the default)
     raw_args = argv if argv is not None else sys.argv[1:]
+    parser = build_parser()
 
     SUBCOMMANDS = {"teach", "status", "doctor", "stats", "export", "import"}
 
