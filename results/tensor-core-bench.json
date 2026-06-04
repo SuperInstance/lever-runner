@@ -1,0 +1,6 @@
+{
+  "experiment": "tensor_core_tile_compression",
+  "device": "cuda",
+  "gpu": "NVIDIA GeForce RTX 4050 Laptop GPU",
+  "conclusion": "FP16 tensor core power iteration is significantly faster than FP32 SVD for rank-1 factorization. Quality acceptable for tile compression."
+}
