@@ -13,8 +13,12 @@ from dataclasses import dataclass
 
 from . import token_logger
 from .executor import RunResult, run_command
+from .fastloop import FastLoopInterceptor
 from .intent_extractor import extract as extract_intent
 from .store import CommandStore, Match, has_placeholders, substitute_args
+
+# Module-level fast-loop instance (cheap to keep alive)
+_fastloop = FastLoopInterceptor()
 
 
 @dataclass
@@ -50,6 +54,21 @@ def do(
     for CLI usage. The Telegram bot passes str(update.effective_chat.id).
     """
     store = store or CommandStore(chat_id=chat_id)
+
+    # ── Fast-Loop: sub-ms validation before any LLM call ──
+    fl_result = _fastloop.check(user_request, context="", sandbox_id=chat_id)
+    if fl_result.action == "ROUTE_TO_DEEP_LOOP":
+        return DoResult(
+            ok=False,
+            user_request=user_request,
+            intent="",
+            match=None,
+            run=None,
+            tokens_in=0,
+            tokens_out=0,
+            error=f"fast-loop blocked: {fl_result.reason}",
+        )
+    # ── End Fast-Loop ──
 
     extraction = extract_intent(user_request)
     token_logger.log_intent(
