@@ -1,0 +1,318 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>Lever Runner — Pyodide Demo</title>
+  <link rel="stylesheet" href="style.css">
+  <script src="https://cdn.jsdelivr.net/pyodide/v0.25.1/full/pyodide.js"></script>
+</head>
+<body>
+  <div class="container">
+    <!-- Header -->
+    <div class="header">
+      <h1>⚡ lever-runner</h1>
+      <div class="subtitle">browser-native · Pyodide · zero server · zero API keys</div>
+    </div>
+
+    <!-- Status bar -->
+    <div class="status-bar">
+      <div class="status-item">
+        <div class="status-dot" id="statusDot"></div>
+        <span id="statusText">Initializing…</span>
+      </div>
+      <div class="status-item" style="margin-left:auto;">
+        <span id="cmdCount">0</span> commands · <span id="tokenCount">0</span> tokens
+      </div>
+    </div>
+
+    <!-- Search input -->
+    <div class="input-area">
+      <div class="input-row">
+        <input type="text" id="queryInput" placeholder="Type a natural language command…" disabled autocomplete="off">
+        <button id="searchBtn" disabled>Search</button>
+      </div>
+    </div>
+
+    <!-- Gate pipeline visualization -->
+    <div class="gate-pipeline">
+      <div class="pipeline-label">Gate Pipeline</div>
+      <div class="gates">
+        <div class="gate" id="gate1" style="--gate-color: var(--gate1);">
+          <div class="gate-num">Gate 1</div>
+          <div class="gate-label">Exact Hash</div>
+        </div>
+        <div class="arrow">→</div>
+        <div class="gate" id="gate2" style="--gate-color: var(--gate2);">
+          <div class="gate-num">Gate 2</div>
+          <div class="gate-label">Cosine Sim</div>
+        </div>
+        <div class="arrow">→</div>
+        <div class="gate" id="gate3" style="--gate-color: var(--gate3);">
+          <div class="gate-num">Gate 3</div>
+          <div class="gate-label">Miss</div>
+        </div>
+      </div>
+      <div class="result-detail" id="resultDetail"></div>
+    </div>
+
+    <!-- Result box -->
+    <div class="result-box" id="resultBox">
+      <div class="result-label">Matched Command</div>
+      <div class="command" id="resultCommand"></div>
+    </div>
+
+    <!-- Action buttons -->
+    <div class="export-row">
+      <button class="toggle-teach-btn" id="toggleTeachBtn">📚 Teach</button>
+      <button class="export-btn" id="exportBtn">📋 Export</button>
+    </div>
+
+    <!-- Teach area (hidden by default) -->
+    <div class="teach-area" id="teachArea">
+      <h3>Teach a New Command</h3>
+      <div class="teach-row">
+        <input type="text" id="teachNatural" placeholder="Natural language (e.g. 'check network')">
+      </div>
+      <div class="teach-row">
+        <input type="text" id="teachCommand" placeholder="Shell command (e.g. 'ifconfig')">
+        <button class="teach-btn" id="teachBtn">Teach</button>
+      </div>
+      <div class="teach-feedback" id="teachFeedback"></div>
+    </div>
+
+    <!-- Query log -->
+    <div class="log-area" id="logArea"></div>
+
+    <!-- Stats footer -->
+    <div class="stats">
+      <span>lever-core v0.1.0</span>
+      <span>Pyodide v0.25.1</span>
+      <span>BLAKE2b + cosine similarity</span>
+    </div>
+  </div>
+
+  <script>
+    // --- DOM refs ---
+    const $ = id => document.getElementById(id);
+    const statusDot = $("statusDot");
+    const statusText = $("statusText");
+    const cmdCount = $("cmdCount");
+    const tokenCount = $("tokenCount");
+    const queryInput = $("queryInput");
+    const searchBtn = $("searchBtn");
+    const gate1 = $("gate1");
+    const gate2 = $("gate2");
+    const gate3 = $("gate3");
+    const resultDetail = $("resultDetail");
+    const resultBox = $("resultBox");
+    const resultCommand = $("resultCommand");
+    const toggleTeachBtn = $("toggleTeachBtn");
+    const teachArea = $("teachArea");
+    const teachNatural = $("teachNatural");
+    const teachCommand = $("teachCommand");
+    const teachBtn = $("teachBtn");
+    const teachFeedback = $("teachFeedback");
+    const exportBtn = $("exportBtn");
+    const logArea = $("logArea");
+
+    let worker = null;
+    let ready = false;
+    let queryLog = [];
+
+    // --- Worker setup ---
+    function initWorker() {
+      worker = new Worker("worker.js");
+      worker.onmessage = (e) => {
+        const msg = e.data;
+        switch (msg.type) {
+          case "status":
+            handleStatus(msg);
+            break;
+          case "search-result":
+            handleSearchResult(msg.result);
+            break;
+          case "teach-result":
+            handleTeachResult(msg);
+            break;
+          case "export-result":
+            handleExportResult(msg.result);
+            break;
+          case "stats-result":
+            updateStats(msg.stats);
+            break;
+        }
+      };
+      worker.postMessage({ type: "init" });
+    }
+
+    function handleStatus(msg) {
+      statusDot.className = "status-dot";
+      if (msg.state === "loading-pyodide" || msg.state === "loading-core") {
+        statusDot.classList.add("loading");
+      } else if (msg.state === "ready") {
+        statusDot.classList.add("ready");
+        ready = true;
+        queryInput.disabled = false;
+        searchBtn.disabled = false;
+        queryInput.focus();
+        if (msg.stats) updateStats(msg.stats);
+      } else if (msg.state === "error") {
+        statusText.textContent = msg.msg;
+      }
+      statusText.textContent = msg.msg;
+    }
+
+    function updateStats(stats) {
+      cmdCount.textContent = stats.commands;
+      tokenCount.textContent = stats.tokens_learned;
+    }
+
+    // --- Gate animation ---
+    function resetGates() {
+      [gate1, gate2, gate3].forEach(g => {
+        g.classList.remove("active", "hit", "miss-pass");
+      });
+      resultDetail.innerHTML = "";
+    }
+
+    async function animateGates(hitGate) {
+      resetGates();
+
+      // Animate through gates sequentially
+      for (let i = 1; i <= hitGate; i++) {
+        const gateEl = i === 1 ? gate1 : i === 2 ? gate2 : gate3;
+        gateEl.classList.add("active");
+
+        if (i < hitGate) {
+          await sleep(200);
+          gateEl.classList.remove("active");
+          gateEl.classList.add("miss-pass");
+        } else {
+          gateEl.classList.add("hit");
+        }
+      }
+    }
+
+    function sleep(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+    // --- Search ---
+    function handleSearchResult(result) {
+      animateGates(result.gate);
+
+      let detail = `<span class="latency">${result.latency_ms}ms</span>`;
+      if (result.gate === 1) {
+        detail += " · exact BLAKE2b match";
+      } else if (result.gate === 2) {
+        detail += ` · cosine <span class="score">${result.score}</span>`;
+        detail += ` · matched "<span class="matched">${escHtml(result.matched_input)}</span>"`;
+      } else if (result.gate === 3) {
+        detail += " · no match found";
+      }
+      resultDetail.innerHTML = detail;
+
+      if (result.command) {
+        resultBox.classList.add("visible");
+        resultBox.querySelector(".result-label").textContent = "Matched Command";
+        resultCommand.textContent = result.command;
+        resultCommand.classList.remove("miss-msg");
+      } else {
+        resultBox.classList.add("visible");
+        resultBox.querySelector(".result-label").textContent = "Result";
+        resultCommand.textContent = "✗ No matching command found";
+        resultCommand.classList.add("miss-msg");
+      }
+
+      // Log
+      addLog(result);
+    }
+
+    function addLog(result) {
+      const time = new Date().toLocaleTimeString();
+      queryLog.unshift({ time, result });
+      if (queryLog.length > 50) queryLog.pop();
+      renderLog();
+    }
+
+    function renderLog() {
+      if (queryLog.length === 0) { logArea.classList.remove("visible"); return; }
+      logArea.classList.add("visible");
+      logArea.innerHTML = queryLog.map(e => {
+        const r = e.result;
+        const gateLabel = r.gate === 1 ? "G1" : r.gate === 2 ? "G2" : "G3";
+        const cmd = r.command
+          ? `<span class="log-cmd">${escHtml(r.command)}</span>`
+          : `<span class="log-miss">miss</span>`;
+        return `<div class="log-entry"><span class="log-time">[${e.time}]</span> <span class="log-q">${escHtml(r.query)}</span> → ${gateLabel} ${cmd} <span class="latency">${r.latency_ms}ms</span></div>`;
+      }).join("");
+    }
+
+    // --- Teach ---
+    function handleTeachResult(msg) {
+      if (msg.result.status === "learned") {
+        teachFeedback.textContent = `✓ Learned: "${msg.result.natural}" → "${msg.result.command}"`;
+        teachFeedback.classList.add("visible");
+        teachNatural.value = "";
+        teachCommand.value = "";
+        if (msg.stats) updateStats(msg.stats);
+        setTimeout(() => teachFeedback.classList.remove("visible"), 3000);
+      } else {
+        teachFeedback.textContent = `✗ Error: ${msg.result.error || "unknown"}`;
+        teachFeedback.classList.add("visible");
+      }
+    }
+
+    // --- Export ---
+    function handleExportResult(result) {
+      const blob = new Blob([JSON.stringify(result, null, 2)], { type: "application/json" });
+      const url = URL.createObjectURL(blob);
+      const a = document.createElement("a");
+      a.href = url;
+      a.download = "lever-commands.json";
+      a.click();
+      URL.revokeObjectURL(url);
+    }
+
+    // --- Event listeners ---
+    searchBtn.addEventListener("click", () => {
+      const q = queryInput.value.trim();
+      if (!q || !ready) return;
+      worker.postMessage({ type: "search", query: q });
+    });
+
+    queryInput.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") searchBtn.click();
+    });
+
+    toggleTeachBtn.addEventListener("click", () => {
+      teachArea.classList.toggle("visible");
+    });
+
+    teachBtn.addEventListener("click", () => {
+      const n = teachNatural.value.trim();
+      const c = teachCommand.value.trim();
+      if (!n || !c || !ready) return;
+      worker.postMessage({ type: "teach", natural: n, command: c });
+    });
+
+    teachCommand.addEventListener("keydown", (e) => {
+      if (e.key === "Enter") teachBtn.click();
+    });
+
+    exportBtn.addEventListener("click", () => {
+      if (!ready) return;
+      worker.postMessage({ type: "export" });
+    });
+
+    // --- Utility ---
+    function escHtml(s) {
+      const d = document.createElement("div");
+      d.textContent = s;
+      return d.innerHTML;
+    }
+
+    // --- Init ---
+    initWorker();
+  </script>
+</body>
+</html>
