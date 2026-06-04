@@ -1,0 +1,14 @@
+FROM python:3.10-slim
+
+WORKDIR /app
+COPY . .
+RUN pip install --no-cache-dir -e .
+
+# Web interface
+RUN pip install --no-cache-dir gradio
+
+# Create web UI
+COPY browser/web_server.py /app/browser/web_server.py
+
+EXPOSE 8000
+CMD ["python3", "browser/web_server.py"]
