@@ -40,6 +40,11 @@ dependencies = [
 gpu = [
     "torch>=2.0",
 ]
+cuda-full = [
+    "torch>=2.0",
+    "cupy-cuda12x>=13.0",
+    "pycuda>=2022.1",
+]
 web = [
     "gradio>=4.0",
 ]

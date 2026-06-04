@@ -1,0 +1,137 @@
+.version 8.5
+.target sm_75
+.address_size 64
+
+// tile_search.ptx — hand-optimized PTX for the dot-product hot path
+//
+// Warp-level cosine similarity using shuffle instructions for reduction.
+// Each thread in a warp processes strided elements for memory coalescing,
+// then reduces across the warp using shfl.sync.
+//
+// Assumes vectors are pre-normalized (dot product == cosine similarity).
+// Callable via cuModuleLoadData + cuLaunchKernel (PyCUDA/CuPy), or
+// assembled with ptxas and linked into the .so.
+//
+// Performance notes:
+//   - Warp stride of 32 ensures coalesced global loads
+//   - shfl.sync.down avoids shared memory for reduction
+//   - Single write from lane 0 avoids atomic contention
+
+.visible .entry cosine_dot_warp(
+    .param .u64 vec_a_ptr,
+    .param .u64 vec_b_ptr,
+    .param .u32 dim,
+    .param .u64 out_ptr
+)
+{
+    .reg .f32 sum, va, vb, prod;
+    .reg .u32 i, lane_id, dim_reg;
+    .reg .u64 a_base, b_base, out_base;
+    .reg .pred p_done;
+
+    ld.param.u64 a_base, [vec_a_ptr];
+    ld.param.u64 b_base, [vec_b_ptr];
+    ld.param.u32 dim_reg, [dim];
+    ld.param.u64 out_base, [out_ptr];
+
+    mov.f32 sum, 0.0;
+
+    // Get lane ID for warp-strided access
+    mov.u32 lane_id, %laneid;
+
+    // Strided dot product: each thread accumulates every 32nd element
+    // This gives coalesced memory access across the warp
+    mov.u32 i, lane_id;
+
+LOOP:
+    setp.ge.u32 p_done, i, dim_reg;
+    @p_done bra REDUCE;
+
+    // Load from both vectors with 4-byte (float) stride
+    ld.global.f32 va, [a_base + 4*i];
+    ld.global.f32 vb, [b_base + 4*i];
+    fma.rn.f32 sum, va, vb, sum;
+    add.u32 i, i, 32;
+    bra LOOP;
+
+REDUCE:
+    // Warp shuffle reduction: sum across all 32 lanes
+    // shfl.sync.down adds the value from (lane + delta) into current lane
+    shfl.sync.down.add.f32 sum, sum, 16, 0x1f;
+    shfl.sync.down.add.f32 sum, sum, 8,  0x1f;
+    shfl.sync.down.add.f32 sum, sum, 4,  0x1f;
+    shfl.sync.down.add.f32 sum, sum, 2,  0x1f;
+    shfl.sync.down.add.f32 sum, sum, 1,  0x1f;
+
+    // Only lane 0 holds the final result
+    setp.eq.u32 p_done, lane_id, 0;
+    @p_done st.global.f32 [out_base], sum;
+
+    ret;
+}
+
+// Batch version: compute cosine similarity of one query against N vectors
+// Each warp handles one database vector (one thread per warp writes result)
+.visible .entry cosine_search_batch(
+    .param .u64 query_ptr,       // [dim]
+    .param .u64 database_ptr,    // [N * dim] row-major
+    .param .u64 scores_ptr,      // [N] output
+    .param .u32 N,
+    .param .u32 dim,
+    .param .u32 warps_per_block  // typically 8 (256 threads / 32)
+)
+{
+    .reg .f32 sum, va, vb;
+    .reg .u32 idx, lane_id, dim_reg, global_warp;
+    .reg .u64 q_base, db_base, scores_base, vec_base;
+    .reg .u32 i;
+    .reg .pred p_done;
+
+    ld.param.u64 q_base, [query_ptr];
+    ld.param.u64 db_base, [database_ptr];
+    ld.param.u64 scores_base, [scores_ptr];
+    ld.param.u32 dim_reg, [dim];
+
+    mov.u32 lane_id, %laneid;
+    // Calculate which warp this thread belongs to
+    // global_warp = (blockIdx.x * blockDim.x + threadIdx.x) / 32
+    mov.u32 global_warp, %ctaid.x;
+    mad.lo.u32 global_warp, global_warp, %ntid.x, %tid.x;
+    shr.u32 global_warp, global_warp, 5;  // divide by 32
+
+    // Bounds check
+    setp.ge.u32 p_done, global_warp, N;
+    @p_done bra BATCH_DONE;
+
+    // Base address for this database vector
+    // vec_base = database_ptr + global_warp * dim * sizeof(float)
+    mad.lo.u32 idx, global_warp, dim_reg, 0;
+    shl.b32 idx, idx, 2;  // multiply by 4 (sizeof float)
+    add.u64 vec_base, db_base, idx;
+
+    mov.f32 sum, 0.0;
+    mov.u32 i, lane_id;
+
+BATCH_LOOP:
+    setp.ge.u32 p_done, i, dim_reg;
+    @p_done bra BATCH_REDUCE;
+
+    ld.global.f32 va, [q_base + 4*i];
+    ld.global.f32 vb, [vec_base + 4*i];
+    fma.rn.f32 sum, va, vb, sum;
+    add.u32 i, i, 32;
+    bra BATCH_LOOP;
+
+BATCH_REDUCE:
+    shfl.sync.down.add.f32 sum, sum, 16, 0x1f;
+    shfl.sync.down.add.f32 sum, sum, 8,  0x1f;
+    shfl.sync.down.add.f32 sum, sum, 4,  0x1f;
+    shfl.sync.down.add.f32 sum, sum, 2,  0x1f;
+    shfl.sync.down.add.f32 sum, sum, 1,  0x1f;
+
+    setp.eq.u32 p_done, lane_id, 0;
+    @p_done st.global.f32 [scores_base + 4*global_warp], sum;
+
+BATCH_DONE:
+    ret;
+}
