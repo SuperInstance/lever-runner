@@ -1,0 +1,7 @@
+{
+  "accuracy": 0.6,
+  "latency_us": 154.84678569991956,
+  "training_pairs": 600,
+  "params": 33584,
+  "vocab_size": 127
+}
