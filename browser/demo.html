@@ -1,0 +1,549 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>lever-runner — Interactive Demo</title>
+<style>
+  *{margin:0;padding:0;box-sizing:border-box}
+  :root{
+    --bg:#0a0e14;--surface:#111820;--border:#1e2a38;
+    --green:#00e676;--cyan:#00bcd4;--amber:#ffc107;
+    --red:#ff5252;--purple:#b388ff;--dim:#546e7a;
+    --text:#c5cdd8;--bright:#e8ecf1;
+    --font:'SF Mono','Fira Code','Cascadia Code','JetBrains Mono',Consolas,'Courier New',monospace;
+  }
+  body{background:var(--bg);color:var(--text);font-family:var(--font);font-size:14px;height:100vh;display:flex;flex-direction:column;overflow:hidden}
+
+  /* Header */
+  .header{padding:12px 20px;border-bottom:1px solid var(--border);display:flex;justify-content:space-between;align-items:center;flex-shrink:0}
+  .header h1{font-size:16px;color:var(--green);letter-spacing:1px}
+  .header h1 span{color:var(--dim);font-weight:400;font-size:12px;margin-left:8px}
+  .stats{display:flex;gap:20px;font-size:12px;color:var(--dim)}
+  .stats .val{color:var(--cyan);font-weight:600}
+
+  /* Main layout */
+  .main{display:flex;flex:1;overflow:hidden}
+
+  /* Terminal panel */
+  .terminal{flex:1;display:flex;flex-direction:column;border-right:1px solid var(--border)}
+  .term-output{flex:1;overflow-y:auto;padding:16px 20px;line-height:1.7}
+  .term-output::-webkit-scrollbar{width:6px}
+  .term-output::-webkit-scrollbar-thumb{background:var(--border);border-radius:3px}
+
+  .line{white-space:pre-wrap;word-break:break-all}
+  .line.prompt{color:var(--green)}
+  .line.result{color:var(--cyan)}
+  .line.error{color:var(--red)}
+  .line.system{color:var(--dim);font-style:italic}
+  .line.success{color:var(--green)}
+  .line.warn{color:var(--amber)}
+
+  .term-input-row{display:flex;align-items:center;padding:12px 20px;border-top:1px solid var(--border);background:var(--surface)}
+  .term-input-row .prompt-sym{color:var(--green);margin-right:10px;font-size:16px;font-weight:700}
+  .term-input-row input{flex:1;background:none;border:none;color:var(--bright);font-family:var(--font);font-size:14px;outline:none}
+  .term-input-row input::placeholder{color:var(--dim)}
+
+  /* Pipeline panel */
+  .pipeline{width:380px;display:flex;flex-direction:column;flex-shrink:0;background:var(--surface)}
+  .pipe-header{padding:12px 16px;border-bottom:1px solid var(--border);font-size:12px;color:var(--dim);letter-spacing:1px;text-transform:uppercase}
+  .pipe-body{flex:1;overflow-y:auto;padding:16px}
+
+  .gate{margin-bottom:16px;border:1px solid var(--border);border-radius:6px;overflow:hidden;transition:border-color 0.3s}
+  .gate.active{border-color:var(--cyan)}
+  .gate.hit{border-color:var(--green)}
+  .gate.miss{border-color:var(--amber)}
+  .gate-head{display:flex;justify-content:space-between;align-items:center;padding:10px 12px;background:rgba(255,255,255,0.02)}
+  .gate-head .label{font-size:12px;font-weight:600;color:var(--bright)}
+  .gate-head .tag{font-size:10px;padding:2px 8px;border-radius:10px;text-transform:uppercase;letter-spacing:0.5px}
+  .gate-head .tag.rust{background:rgba(183,65,14,0.3);color:#f97316}
+  .gate-head .tag.python{background:rgba(0,188,212,0.15);color:var(--cyan)}
+  .gate-head .tag.llm{background:rgba(179,136,255,0.15);color:var(--purple)}
+
+  .gate-body{padding:10px 12px;font-size:12px;min-height:48px}
+  .gate-body .detail{color:var(--dim);margin-top:4px}
+  .gate-body .latency{font-size:11px;margin-top:4px;display:flex;align-items:center;gap:6px}
+  .gate-body .latency .bar{height:3px;border-radius:2px;transition:width 0.3s}
+  .gate-body .latency .bar.fast{background:var(--green)}
+  .gate-body .latency .bar.med{background:var(--amber)}
+  .gate-body .latency .bar.slow{background:var(--red)}
+
+  .gate-body .anim{display:inline-block;animation:pulse 0.8s infinite}
+  @keyframes pulse{0%,100%{opacity:1}50%{opacity:0.3}}
+
+  .gate-body .match{color:var(--green)}
+  .gate-body .nomatch{color:var(--amber)}
+
+  /* Teach panel */
+  .teach-panel{margin-top:12px;border:1px solid var(--border);border-radius:6px;padding:14px}
+  .teach-panel h3{font-size:12px;color:var(--amber);margin-bottom:10px;letter-spacing:0.5px}
+  .teach-panel input{width:100%;padding:8px 10px;background:var(--bg);border:1px solid var(--border);border-radius:4px;color:var(--bright);font-family:var(--font);font-size:12px;margin-bottom:8px;outline:none}
+  .teach-panel input:focus{border-color:var(--amber)}
+  .teach-panel .btn-row{display:flex;gap:8px}
+  .teach-panel button{flex:1;padding:7px;border:1px solid var(--border);border-radius:4px;background:var(--bg);color:var(--text);font-family:var(--font);font-size:11px;cursor:pointer;transition:all 0.2s}
+  .teach-panel button:hover{border-color:var(--green);color:var(--green)}
+  .teach-panel button.export-btn:hover{border-color:var(--cyan);color:var(--cyan)}
+
+  /* Token counter */
+  .tokens{padding:12px 16px;border-top:1px solid var(--border);font-size:11px;color:var(--dim)}
+  .tokens .row{display:flex;justify-content:space-between;margin-bottom:3px}
+  .tokens .val{color:var(--cyan)}
+
+  /* Teach mode toggle */
+  .mode-toggle{position:absolute;right:16px;top:60px;z-index:10}
+  .mode-toggle button{background:var(--surface);border:1px solid var(--border);color:var(--dim);padding:6px 12px;border-radius:4px;font-family:var(--font);font-size:11px;cursor:pointer}
+  .mode-toggle button.active{border-color:var(--amber);color:var(--amber)}
+
+  /* Help text at start */
+  .help-text{color:var(--dim);font-size:12px;margin-top:12px;line-height:1.6}
+  .help-text kbd{background:var(--surface);border:1px solid var(--border);padding:1px 5px;border-radius:3px;font-size:11px}
+
+  /* Responsive */
+  @media(max-width:800px){
+    .main{flex-direction:column}
+    .terminal{border-right:none;border-bottom:1px solid var(--border);min-height:50vh}
+    .pipeline{width:100%}
+  }
+</style>
+</head>
+<body>
+
+<div class="header">
+  <h1>lever-runner <span>interactive demo</span></h1>
+  <div class="stats">
+    <div>Commands: <span class="val" id="cmd-count">20</span></div>
+    <div>Queries: <span class="val" id="query-count">0</span></div>
+    <div>Tokens saved: <span class="val" id="tokens-saved">0</span></div>
+  </div>
+</div>
+
+<div class="main">
+  <!-- Terminal -->
+  <div class="terminal">
+    <div class="term-output" id="output"></div>
+    <div class="term-input-row">
+      <span class="prompt-sym">❯</span>
+      <input id="input" type="text" placeholder="Type a command in plain English..." autofocus autocomplete="off" spellcheck="false">
+    </div>
+  </div>
+
+  <!-- Pipeline visualization -->
+  <div class="pipeline">
+    <div class="pipe-header">Three-Gate Pipeline</div>
+    <div class="pipe-body" id="pipe-body">
+
+      <div class="gate" id="gate1">
+        <div class="gate-head">
+          <span class="label">Gate 1 — Intent Hash</span>
+          <span class="tag rust">Rust</span>
+        </div>
+        <div class="gate-body" id="gate1-body">
+          <div class="detail">BLAKE2b intent hash → O(1) lookup</div>
+        </div>
+      </div>
+
+      <div class="gate" id="gate2">
+        <div class="gate-head">
+          <span class="label">Gate 2 — Vector Search</span>
+          <span class="tag python">Python</span>
+        </div>
+        <div class="gate-body" id="gate2-body">
+          <div class="detail">Cosine similarity over embedded commands</div>
+        </div>
+      </div>
+
+      <div class="gate" id="gate3">
+        <div class="gate-head">
+          <span class="label">Gate 3 — LLM Fallback</span>
+          <span class="tag llm">LLM</span>
+        </div>
+        <div class="gate-body" id="gate3-body">
+          <div class="detail">Only fires when Gates 1–2 miss</div>
+        </div>
+      </div>
+
+      <!-- Teach mode -->
+      <div class="teach-panel" id="teach-panel">
+        <h3>⚡ Teach Mode — Add New Commands</h3>
+        <input id="teach-intent" type="text" placeholder='Intent: e.g. "show nginx logs"'>
+        <input id="teach-command" type="text" placeholder='Command: e.g. "docker logs --tail 100 nginx"'>
+        <div class="btn-row">
+          <button id="teach-btn">Teach</button>
+          <button id="export-btn" class="export-btn">Export JSON</button>
+        </div>
+      </div>
+    </div>
+
+    <!-- Token savings -->
+    <div class="tokens" id="tokens-panel">
+      <div class="row"><span>Token budget (no LR):</span><span class="val" id="tok-nolr">—</span></div>
+      <div class="row"><span>Token budget (with LR):</span><span class="val" id="tok-lr">—</span></div>
+      <div class="row"><span>Savings:</span><span class="val" id="tok-save">—</span></div>
+      <div class="row"><span>Total tokens saved:</span><span class="val" id="tok-total">0</span></div>
+    </div>
+  </div>
+</div>
+
+<script>
+// ============================================================
+// lever-runner Browser Demo — Pure JS, Zero Dependencies
+// ============================================================
+
+// --- Command Database ---
+const COMMANDS = [
+  { intent: "check disk usage",               command: "df -h",                       category: "system" },
+  { intent: "check memory usage",              command: "free -h",                     category: "system" },
+  { intent: "show cpu usage",                  command: "top -bn1 | head -20",         category: "system" },
+  { intent: "list running processes",          command: "ps aux",                      category: "system" },
+  { intent: "show system uptime",              command: "uptime",                      category: "system" },
+  { intent: "list docker containers",          command: "docker ps",                   category: "docker" },
+  { intent: "list docker images",              command: "docker images",               category: "docker" },
+  { intent: "show docker logs",                command: "docker logs --tail 100",      category: "docker" },
+  { intent: "restart docker container",        command: "docker restart",              category: "docker" },
+  { intent: "show git status",                 command: "git status",                  category: "git" },
+  { intent: "show git log",                    command: "git log --oneline -20",       category: "git" },
+  { intent: "show git diff",                   command: "git diff",                    category: "git" },
+  { intent: "create new branch",               command: "git checkout -b",             category: "git" },
+  { intent: "push to remote",                  command: "git push",                    category: "git" },
+  { intent: "pull from remote",                command: "git pull",                    category: "git" },
+  { intent: "list files",                      command: "ls -la",                      category: "files" },
+  { intent: "find large files",                command: "find . -size +100M -ls",      category: "files" },
+  { intent: "search in files",                 command: "grep -rn",                    category: "files" },
+  { intent: "check network connections",       command: "ss -tulpn",                   category: "network" },
+  { intent: "ping a host",                     command: "ping -c 3",                   category: "network" },
+  { intent: "install python package",          command: "pip install",                 category: "python" },
+  { intent: "run python tests",                command: "pytest",                      category: "python" },
+  { intent: "show environment variables",      command: "env | sort",                  category: "system" },
+  { intent: "check listening ports",           command: "lsof -i -P -n",              category: "network" },
+  { intent: "compress directory",              command: "tar czf archive.tar.gz",      category: "files" },
+  { intent: "show disk partitions",            command: "lsblk",                       category: "system" },
+  { intent: "show ssh key fingerprint",        command: "ssh-keygen -lf ~/.ssh/id_rsa.pub", category: "security" },
+  { intent: "check ssl certificate",           command: "openssl s_client -connect",   category: "security" },
+  { intent: "download file",                   command: "curl -O",                     category: "network" },
+  { intent: "show who is logged in",           command: "who",                         category: "system" },
+];
+
+// User-taught commands
+const userCommands = JSON.parse(localStorage.getItem('lr-taught') || '[]');
+const ALL_COMMANDS = [...COMMANDS, ...userCommands];
+
+// --- State ---
+let queryCount = 0;
+let totalTokensSaved = 0;
+
+// --- DOM ---
+const output = document.getElementById('output');
+const inputEl = document.getElementById('input');
+const cmdCountEl = document.getElementById('cmd-count');
+const queryCountEl = document.getElementById('query-count');
+const tokensSavedEl = document.getElementById('tokens-saved');
+
+cmdCountEl.textContent = ALL_COMMANDS.length;
+
+// --- Helpers ---
+function print(text, cls = '') {
+  const div = document.createElement('div');
+  div.className = 'line ' + cls;
+  div.textContent = text;
+  output.appendChild(div);
+  output.scrollTop = output.scrollHeight;
+}
+
+function printHTML(html) {
+  const div = document.createElement('div');
+  div.className = 'line';
+  div.innerHTML = html;
+  output.appendChild(div);
+  output.scrollTop = output.scrollHeight;
+}
+
+// --- Hash function (simulates BLAKE2b, ~50µs) ---
+async function blake2Hash(text) {
+  const encoder = new TextEncoder();
+  const data = encoder.encode(text.toLowerCase().trim());
+  const hashBuffer = await crypto.subtle.digest('SHA-256', data);
+  const hashArray = Array.from(new Uint8Array(hashBuffer));
+  return hashArray.map(b => b.toString(16).padStart(2, '0')).join('');
+}
+
+// --- Position-aware embedding (simulates, 64-dim) ---
+function embed(text) {
+  const dim = 64;
+  const words = text.toLowerCase().split(/\s+/);
+  const vec = new Float32Array(dim);
+
+  for (let i = 0; i < words.length; i++) {
+    // Simple hash-based word vector
+    let h = 0;
+    for (let c = 0; c < words[i].length; c++) {
+      h = ((h << 5) - h + words[i].charCodeAt(c)) | 0;
+    }
+    for (let d = 0; d < dim; d++) {
+      const seed = h ^ (d * 2654435761);
+      const x = Math.sin(seed) * 43758.5453;
+      vec[d] += (x - Math.floor(x) - 0.5) * (1.0 / (1 + i * 0.5));
+    }
+  }
+  // Normalize
+  let norm = 0;
+  for (let d = 0; d < dim; d++) norm += vec[d] * vec[d];
+  norm = Math.sqrt(norm);
+  if (norm > 0) for (let d = 0; d < dim; d++) vec[d] /= norm;
+  return vec;
+}
+
+function cosineSim(a, b) {
+  let dot = 0;
+  for (let i = 0; i < a.length; i++) dot += a[i] * b[i];
+  return dot;
+}
+
+// Pre-embed all commands
+const embedded = ALL_COMMANDS.map(c => ({ ...c, vec: embed(c.intent) }));
+
+// --- Simulated LLM responses ---
+const LLM_RESPONSES = [
+  "Analyzing intent against command corpus...",
+  "Generating candidate commands...",
+  "Selecting best match with context window...",
+  "Refining command parameters...",
+  "Confidence scoring complete.",
+];
+
+// --- Pipeline Animation ---
+function setGate(id, state, html) {
+  const gate = document.getElementById(id);
+  const body = document.getElementById(id + '-body');
+  gate.className = 'gate ' + state;
+  if (html !== undefined) body.innerHTML = html;
+}
+
+function resetGates() {
+  setGate('gate1', '', '<div class="detail">Awaiting query...</div>');
+  setGate('gate2', '', '<div class="detail">Awaiting query...</div>');
+  setGate('gate3', '', '<div class="detail">Awaiting query...</div>');
+}
+
+async function delay(ms) { return new Promise(r => setTimeout(r, ms)); }
+
+function latencyBar(microseconds, maxMicro) {
+  const pct = Math.min(100, (microseconds / maxMicro) * 100);
+  const cls = microseconds < 200 ? 'fast' : microseconds < 1000 ? 'med' : 'slow';
+  return `<span class="bar ${cls}" style="width:${pct}%;display:inline-block"></span> ${microseconds < 1000 ? microseconds + 'µs' : (microseconds/1000).toFixed(1) + 'ms'}`;
+}
+
+// --- Main Query Pipeline ---
+async function processQuery(query) {
+  print('❯ ' + query, 'prompt');
+  queryCount++;
+  queryCountEl.textContent = queryCount;
+  inputEl.disabled = true;
+
+  const queryNorm = query.toLowerCase().trim();
+
+  // Token accounting
+  const tokensNoLR = 800 + Math.floor(queryNorm.length * 3); // typical LLM prompt+response
+  const tokensLR = 15; // lever-runner: intent phrase only
+
+  // === GATE 1: Hash Lookup (~50µs) ===
+  setGate('gate1', 'active', '<div class="detail"><span class="anim">⏳</span> Hashing intent...</div>');
+  await delay(120);
+
+  const hash = await blake2Hash(queryNorm);
+  const gate1Latency = 42 + Math.floor(Math.random() * 20);
+
+  // Exact match check
+  let exactMatch = null;
+  for (const cmd of ALL_COMMANDS) {
+    if (cmd.intent.toLowerCase() === queryNorm || cmd.command.toLowerCase() === queryNorm) {
+      exactMatch = cmd;
+      break;
+    }
+  }
+
+  if (exactMatch) {
+    setGate('gate1', 'hit',
+      `<div class="match">✓ Exact match found</div>
+       <div class="detail">"${exactMatch.intent}" → <code>${exactMatch.command}</code></div>
+       <div class="latency">${latencyBar(gate1Latency, 5000)}</div>`);
+    setGate('gate2', '', '<div class="detail">⏭ Skipped — Gate 1 hit</div>');
+    setGate('gate3', '', '<div class="detail">⏭ Skipped — Gate 1 hit</div>');
+    finishQuery(exactMatch, tokensNoLR, tokensLR, gate1Latency, 0, 0);
+    return;
+  }
+
+  setGate('gate1', 'miss',
+    `<div class="nomatch">✗ No exact match</div>
+     <div class="detail">Hash: ${hash.substring(0, 16)}...</div>
+     <div class="latency">${latencyBar(gate1Latency, 5000)}</div>`);
+
+  // === GATE 2: Vector Search (~5-10ms) ===
+  setGate('gate2', 'active', '<div class="detail"><span class="anim">⏳</span> Searching embeddings...</div>');
+  await delay(200);
+
+  const qVec = embed(queryNorm);
+  let bestScore = -1, bestCmd = null;
+  const topK = [];
+
+  for (const cmd of embedded) {
+    const sim = cosineSim(qVec, cmd.vec);
+    topK.push({ ...cmd, score: sim });
+  }
+  topK.sort((a, b) => b.score - a.score);
+
+  const gate2Latency = 4800 + Math.floor(Math.random() * 4000);
+  bestCmd = topK[0];
+  bestScore = bestCmd.score;
+
+  if (bestScore > 0.65) {
+    const top3 = topK.slice(0, 3).map((c, i) => {
+      const pct = (c.score * 100).toFixed(1);
+      const icon = i === 0 ? '★' : ' ';
+      return `${icon} ${(pct + '%').padEnd(6)} ${c.intent.padEnd(30)} → ${c.command}`;
+    }).join('\n');
+
+    setGate('gate2', 'hit',
+      `<div class="match">✓ Vector match (${(bestScore*100).toFixed(1)}%)</div>
+       <div class="detail">Top-3:</div>
+       <div class="detail" style="white-space:pre;font-size:11px">${top3}</div>
+       <div class="latency">${latencyBar(gate2Latency, 20000)}</div>`);
+    setGate('gate3', '', '<div class="detail">⏭ Skipped — Gate 2 hit</div>');
+    finishQuery(bestCmd, tokensNoLR, tokensLR, gate1Latency, gate2Latency, 0);
+    return;
+  }
+
+  setGate('gate2', 'miss',
+    `<div class="nomatch">✗ Best: ${(bestScore*100).toFixed(1)}% (below 65% threshold)</div>
+     <div class="detail">"${topK[0].intent}" → ${topK[0].command}</div>
+     <div class="latency">${latencyBar(gate2Latency, 20000)}</div>`);
+
+  // === GATE 3: LLM Fallback (~500ms) ===
+  setGate('gate3', 'active', '<div class="detail"><span class="anim">⏳</span> ' + LLM_RESPONSES[0] + '</div>');
+  await delay(300);
+  setGate('gate3', 'active', '<div class="detail"><span class="anim">⏳</span> ' + LLM_RESPONSES[1] + '</div>');
+  await delay(400);
+
+  const gate3Latency = 380000 + Math.floor(Math.random() * 250000);
+
+  // Simulated LLM result — use best vector match but with higher "confidence"
+  const llmCmd = topK[0];
+  const llmConfidence = 0.72 + Math.random() * 0.2;
+
+  setGate('gate3', 'hit',
+    `<div class="match">✓ LLM match (${(llmConfidence*100).toFixed(1)}% confidence)</div>
+     <div class="detail">"${llmCmd.intent}" → <code>${llmCmd.command}</code></div>
+     <div class="detail" style="color:var(--purple)">Tokens consumed: ~${tokensNoLR}</div>
+     <div class="latency">${latencyBar(gate3Latency, 800000)}</div>`);
+
+  // LLM gate costs full tokens
+  finishQuery(llmCmd, tokensNoLR, tokensNoLR, gate1Latency, gate2Latency, gate3Latency, true);
+}
+
+function finishQuery(cmd, tokensNoLR, tokensLR, g1, g2, g3, usedLLM = false) {
+  const saved = tokensNoLR - tokensLR;
+
+  if (usedLLM) {
+    print(`  ${cmd.command}  (LLM fallback)`, 'warn');
+    print(`  ⚠ Full token budget used — teach this command to avoid next time`, 'warn');
+  } else {
+    print(`  → ${cmd.command}`, 'result');
+    print(`  ✓ ${saved} tokens saved (used ${tokensLR} vs ${tokensNoLR} traditional)`, 'success');
+  }
+
+  // Update token display
+  document.getElementById('tok-nolr').textContent = tokensNoLR;
+  document.getElementById('tok-lr').textContent = tokensLR;
+  document.getElementById('tok-save').textContent = usedLLM ? '0' : ('+' + saved);
+  document.getElementById('tok-save').style.color = usedLLM ? 'var(--red)' : 'var(--green)';
+
+  if (!usedLLM) {
+    totalTokensSaved += saved;
+    tokensSavedEl.textContent = totalTokensSaved;
+    document.getElementById('tok-total').textContent = totalTokensSaved;
+  }
+
+  print('');
+  inputEl.disabled = false;
+  inputEl.focus();
+}
+
+// --- Teach Mode ---
+function teachCommand(intent, command) {
+  if (!intent || !command) return;
+  const newCmd = { intent: intent.toLowerCase().trim(), command: command.trim(), category: "user" };
+  userCommands.push(newCmd);
+  ALL_COMMANDS.push(newCmd);
+  embedded.push({ ...newCmd, vec: embed(newCmd.intent) });
+  localStorage.setItem('lr-taught', JSON.stringify(userCommands));
+  cmdCountEl.textContent = ALL_COMMANDS.length;
+  print(`✓ Taught: "${newCmd.intent}" → ${newCmd.command}`, 'success');
+  print(`  Commands database now has ${ALL_COMMANDS.length} entries`, 'system');
+  print('');
+}
+
+function exportCommands() {
+  const data = JSON.stringify({
+    built_in: COMMANDS.length,
+    user_taught: userCommands.length,
+    commands: ALL_COMMANDS.map(c => ({ intent: c.intent, command: c.command, category: c.category }))
+  }, null, 2);
+  const blob = new Blob([data], { type: 'application/json' });
+  const url = URL.createObjectURL(blob);
+  const a = document.createElement('a');
+  a.href = url;
+  a.download = 'lever-runner-commands.json';
+  a.click();
+  URL.revokeObjectURL(url);
+  print(`✓ Exported ${ALL_COMMANDS.length} commands to lever-runner-commands.json`, 'success');
+  print('');
+}
+
+// --- Event Listeners ---
+inputEl.addEventListener('keydown', async (e) => {
+  if (e.key === 'Enter' && inputEl.value.trim()) {
+    const q = inputEl.value.trim();
+    inputEl.value = '';
+    await processQuery(q);
+  }
+});
+
+document.getElementById('teach-btn').addEventListener('click', () => {
+  const intent = document.getElementById('teach-intent').value.trim();
+  const command = document.getElementById('teach-command').value.trim();
+  if (intent && command) {
+    teachCommand(intent, command);
+    document.getElementById('teach-intent').value = '';
+    document.getElementById('teach-command').value = '';
+  }
+});
+
+document.getElementById('export-btn').addEventListener('click', exportCommands);
+
+// Teach on Enter in teach inputs
+document.getElementById('teach-command').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') document.getElementById('teach-btn').click();
+});
+document.getElementById('teach-intent').addEventListener('keydown', (e) => {
+  if (e.key === 'Enter') document.getElementById('teach-command').focus();
+});
+
+// --- Welcome ---
+print('lever-runner interactive demo v0.4.0', 'system');
+print('Post-inference command execution. The LLM never sees your shell.', 'system');
+print('', '');
+print('Try these:', 'system');
+print('  check disk usage', 'prompt');
+print('  show git status', 'prompt');
+print('  list docker containers', 'prompt');
+print('  find large files', 'prompt');
+print('  restart nginx', 'prompt');
+print('', '');
+print('Or teach new commands using the panel on the right →', 'system');
+print('Type anything to see the three-gate pipeline in action.', 'system');
+print('', '');
+
+resetGates();
+inputEl.focus();
+</script>
+</body>
+</html>

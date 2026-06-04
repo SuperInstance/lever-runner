@@ -395,32 +395,67 @@ examples:
 
 
 def main(argv: list[str] | None = None) -> int:
-    parser = build_parser()
-    ns = parser.parse_args(argv)
+    # Manual parse to handle no-subcommand case (argparse subparsers
+    # don't play well with free-form positional args as the default)
+    raw_args = argv if argv is not None else sys.argv[1:]
 
-    if ns.command == "teach":
-        ns.teach_args = " ".join(ns.teach_args)
-        return _cmd_teach(ns)
-    elif ns.command == "status":
-        return _cmd_status(ns)
-    elif ns.command == "doctor":
-        return _cmd_doctor(ns)
-    elif ns.command == "stats":
-        return _cmd_stats(ns)
-    elif ns.command == "export":
-        return _cmd_export(ns)
-    elif ns.command == "import":
-        return _cmd_import(ns)
-    elif ns.command is None and ns.request:
-        return _cmd_do(ns)
-    else:
-        # No subcommand — treat first positional as a request
-        # But argparse with subparsers eats positionals, so we handle it differently
-        if argv and argv[0] not in ("teach", "status", "doctor", "stats", "export", "import"):
-            ns.request = argv
-            return _cmd_do(ns)
+    SUBCOMMANDS = {"teach", "status", "doctor", "stats", "export", "import"}
+
+    if not raw_args:
         parser.print_help()
         return 2
+
+    # Handle --version early
+    if "--version" in raw_args or "-V" in raw_args:
+        print(f"lever-runner {_get_version()}")
+        return 0
+
+    # Extract --chat-id from anywhere
+    chat_id = "default"
+    filtered = []
+    skip_next = False
+    for i, a in enumerate(raw_args):
+        if skip_next:
+            skip_next = False
+            continue
+        if a == "--chat-id" and i + 1 < len(raw_args):
+            chat_id = raw_args[i + 1]
+            skip_next = True
+            continue
+        if a.startswith("--chat-id="):
+            chat_id = a.split("=", 1)[1]
+            continue
+        filtered.append(a)
+
+    if not filtered:
+        parser.print_help()
+        return 2
+
+    if filtered[0] in SUBCOMMANDS:
+        # Use argparse for subcommands
+        ns = parser.parse_args(raw_args)
+        ns.chat_id = chat_id
+
+        if ns.command == "teach":
+            ns.teach_args = " ".join(ns.teach_args)
+            return _cmd_teach(ns)
+        elif ns.command == "status":
+            return _cmd_status(ns)
+        elif ns.command == "doctor":
+            return _cmd_doctor(ns)
+        elif ns.command == "stats":
+            return _cmd_stats(ns)
+        elif ns.command == "export":
+            return _cmd_export(ns)
+        elif ns.command == "import":
+            return _cmd_import(ns)
+        else:
+            parser.print_help()
+            return 2
+    else:
+        # No subcommand — treat everything as a request
+        ns = argparse.Namespace(chat_id=chat_id, request=filtered)
+        return _cmd_do(ns)
 
 
 if __name__ == "__main__":
