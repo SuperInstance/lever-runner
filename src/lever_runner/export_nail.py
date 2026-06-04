@@ -40,7 +40,7 @@ from .store import CommandStore, LANCEDB_PATH
 # .nail format helpers
 # ---------------------------------------------------------------------------
 
-NAIL_VERSION = "0.1.0"
+NAIL_VERSION = 1
 
 
 def _blake3_hex(data: bytes) -> str:
@@ -158,30 +158,54 @@ def _build_manifest(
     checksums: dict[str, str],
     source: str = "lever-runner",
 ) -> dict[str, Any]:
-    """Build a .nail manifest dict."""
+    """Build a .nail manifest dict matching pincherOS schema.
+
+    PincherOS expects:
+      - version: int (schema version)
+      - created_at: ISO timestamp
+      - source_device: { hostname, os, arch, fingerprint }
+      - pincher_version: string
+      - embedding_backend: string
+      - embedding_dimensions: int
+      - reflex_count: int
+    """
+    import platform
+    import socket
+
     return {
         "version": NAIL_VERSION,
-        "fingerprint": f"lever-runner:{source}",
-        "timestamp": datetime.now(timezone.utc).isoformat(),
+        "created_at": datetime.now(timezone.utc).isoformat(),
+        "source_device": {
+            "hostname": socket.gethostname(),
+            "os": platform.system().lower(),
+            "arch": platform.machine(),
+            "fingerprint": f"blake3:{checksums.get('reflexes_db', 'unknown')[:16]}",
+        },
+        "pincher_version": "0.1.0",
+        "embedding_backend": "hash",
+        "embedding_dimensions": 256,
         "reflex_count": reflex_count,
         "checksums": checksums,
         "source": source,
-        "export_metadata": {
-            "exported_at": datetime.now(timezone.utc).isoformat(),
-            "exported_by": "lever-runner",
-        },
     }
 
 
 def _build_identity() -> dict[str, Any]:
-    """Build a default identity.json for the nail archive."""
+    """Build a default identity.json for the nail archive.
+
+    PincherOS expects:
+      - agent_name: string
+      - preferences: dict
+    """
     return {
-        "name": "lever-runner-export",
+        "agent_name": "lever-runner-export",
         "preferences": {
             "preferred_shell": "bash",
             "preferred_editor": "vim",
             "language": "en",
             "verbosity": 1,
+            "output_format": "text",
+            "confirm_threshold": 0.70,
         },
         "created_at": datetime.now(timezone.utc).isoformat(),
     }
