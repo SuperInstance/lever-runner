@@ -13,12 +13,12 @@ from dataclasses import dataclass
 
 from . import token_logger
 from .executor import RunResult, run_command
-from .fastloop import FastLoopInterceptor
+from .fastloop_bridge import FastLoopBridge
 from .intent_extractor import extract as extract_intent
 from .store import CommandStore, Match, has_placeholders, substitute_args
 
-# Module-level fast-loop instance (cheap to keep alive)
-_fastloop = FastLoopInterceptor()
+# Module-level fast-loop bridge (Rust UDS with Python fallback)
+_fastloop = FastLoopBridge()
 
 
 @dataclass
