@@ -2,7 +2,7 @@
 
 ## Title
 
-Show HN: lever-runner — A shell AI where prompt injection is physically impossible
+Show HN: lever-runner — Shell AI where prompt injection is physically impossible (70 tokens/query)
 
 ## Post
 
