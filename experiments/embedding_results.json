@@ -1,0 +1,57 @@
+[
+  {
+    "embedder": "hash_blake2b_64",
+    "dim": 64,
+    "top1_acc": 0.0,
+    "top3_acc": 0.0,
+    "top5_acc": 0.0,
+    "mrr": 0.05244220362339253,
+    "avg_latency_us": 5.927048914600164,
+    "num_commands": 70,
+    "num_queries": 20
+  },
+  {
+    "embedder": "hash_blake2b_128",
+    "dim": 128,
+    "top1_acc": 0.0,
+    "top3_acc": 0.0,
+    "top5_acc": 0.05555555555555555,
+    "mrr": 0.04419318788691093,
+    "avg_latency_us": 4.0516009903512895,
+    "num_commands": 70,
+    "num_queries": 20
+  },
+  {
+    "embedder": "random_proj_128",
+    "dim": 128,
+    "top1_acc": 0.3333333333333333,
+    "top3_acc": 0.5,
+    "top5_acc": 0.5555555555555556,
+    "mrr": 0.46222720906544434,
+    "avg_latency_us": 2.4761502572800964,
+    "num_commands": 70,
+    "num_queries": 20
+  },
+  {
+    "embedder": "position_aware_64",
+    "dim": 64,
+    "top1_acc": 0.4444444444444444,
+    "top3_acc": 0.5555555555555556,
+    "top5_acc": 0.6666666666666666,
+    "mrr": 0.5364296063571427,
+    "avg_latency_us": 1.448949842597358,
+    "num_commands": 70,
+    "num_queries": 20
+  },
+  {
+    "embedder": "position_aware_128",
+    "dim": 128,
+    "top1_acc": 0.3888888888888889,
+    "top3_acc": 0.5,
+    "top5_acc": 0.5,
+    "mrr": 0.47855735418392065,
+    "avg_latency_us": 1.848099782364443,
+    "num_commands": 70,
+    "num_queries": 20
+  }
+]
