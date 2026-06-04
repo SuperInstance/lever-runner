@@ -21,12 +21,14 @@ import sys
 import time
 from pathlib import Path
 
-from . import __version__
-
 
 def _get_version() -> str:
     """Get version from package metadata, falling back to hardcoded."""
-    return __version__
+    try:
+        from . import __version__
+        return __version__
+    except ImportError:
+        return "0.4.0"
 
 
 def _cmd_do(ns: argparse.Namespace) -> int:
@@ -433,8 +435,8 @@ def main(argv: list[str] | None = None) -> int:
         return 2
 
     if filtered[0] in SUBCOMMANDS:
-        # Use argparse for subcommands
-        ns = parser.parse_args(raw_args)
+        # Use argparse for subcommands — pass filtered (without --chat-id)
+        ns = parser.parse_args(filtered)
         ns.chat_id = chat_id
 
         if ns.command == "teach":
