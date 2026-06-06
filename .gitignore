@@ -55,3 +55,5 @@ data/
 *.sqlite
 *.sqlite3
 /tmp/lever-runner/
+target/
+Cargo.lock
